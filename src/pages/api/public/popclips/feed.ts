@@ -114,9 +114,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     ? Math.max(1, Math.min(MAX_TAKE, Math.floor(takeRaw)))
     : DEFAULT_TAKE;
   const cursor = getQueryString(req.query.cursor);
-  const km = normalizeKm(parseNumber(getQueryString(req.query.km)));
-  const lat = parseNumber(getQueryString(req.query.lat));
-  const lng = parseNumber(getQueryString(req.query.lng));
+  const km = normalizeKm(parseNumber(getQueryString(req.query.radiusKm ?? req.query.km)));
+  const lat = parseNumber(getQueryString(req.query.centerLat ?? req.query.lat));
+  const lng = parseNumber(getQueryString(req.query.centerLng ?? req.query.lng));
   const hasUserLocation = Number.isFinite(lat) && Number.isFinite(lng);
   const avail = parseFlag(req.query.avail);
   const r24 = parseFlag(req.query.r24);

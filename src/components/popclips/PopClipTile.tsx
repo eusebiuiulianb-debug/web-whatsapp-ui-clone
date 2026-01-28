@@ -1,18 +1,14 @@
-import * as Dialog from "@radix-ui/react-dialog";
-import * as Popover from "@radix-ui/react-popover";
 import clsx from "clsx";
-import { MessageCircle, Play, Sparkles, Star } from "lucide-react";
+import { MessageCircle, Play, Sparkles } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
+import { memo, useEffect, useRef, useState, type MouseEvent } from "react";
 import { useRouter } from "next/router";
-import { memo, useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { Skeleton } from "../ui/Skeleton";
 import { IconGlyph } from "../ui/IconGlyph";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
-import { emitFollowChange, setFollowSnapshot } from "../../lib/followEvents";
-import { useFollowState } from "../../lib/useFollowState";
-import { FollowButtonLabel } from "../follow/FollowButtonLabel";
+import { formatDistanceKm } from "../../utils/formatDistanceKm";
 import { VerifiedInlineBadge } from "../ui/VerifiedInlineBadge";
 import { PopClipMediaActions, popClipMediaActionButtonClass } from "./PopClipMediaActions";
 
@@ -76,30 +72,13 @@ type Props = {
   onOrganize?: (savedItemId: string, collectionId: string | null) => void;
   organizerItemId?: string | null;
   organizerCollectionId?: string | null;
+  hasLocationCenter?: boolean;
+  onRequestLocation?: () => void;
   onOpenCaption?: (item: PopClipTileItem) => void;
   onCopyLink?: (item: PopClipTileItem) => void;
   onShare?: (item: PopClipTileItem) => void;
   onReport?: (item: PopClipTileItem) => void;
 };
-
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return undefined;
-    const mediaQueryList = window.matchMedia(query);
-    const updateMatch = () => setMatches(mediaQueryList.matches);
-    updateMatch();
-    if (mediaQueryList.addEventListener) {
-      mediaQueryList.addEventListener("change", updateMatch);
-      return () => mediaQueryList.removeEventListener("change", updateMatch);
-    }
-    mediaQueryList.addListener(updateMatch);
-    return () => mediaQueryList.removeListener(updateMatch);
-  }, [query]);
-
-  return matches;
-}
 
 export const PopClipTile = memo(function PopClipTile({
   item,
@@ -107,33 +86,24 @@ export const PopClipTile = memo(function PopClipTile({
   profileHref,
   chatHref,
   variant = "explore",
-  secondaryCta,
-  followButtonVariant = "primary",
-  isFollowing = false,
-  onFollowChange,
-  onFollowError,
   isSaved = false,
   onToggleSave,
   onOrganize,
   organizerItemId,
   organizerCollectionId,
+  hasLocationCenter = false,
+  onRequestLocation,
   onCopyLink,
   onShare,
   onReport,
 }: Props) {
+  const router = useRouter();
   const isProfileCompact = variant === "profileCompact";
   const isProfileMinimal = variant === "profileMinimal";
   const showHeader = !isProfileCompact && !isProfileMinimal;
-  const router = useRouter();
   const [thumbFailed, setThumbFailed] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
-  const creatorId = (item.creatorId || "").trim();
-  const hasCreatorId = Boolean(creatorId);
-  const followState = useFollowState(creatorId, { isFollowing });
-  const following = followState.isFollowing;
-  const [followPending, setFollowPending] = useState(false);
-  const [chipsOpen, setChipsOpen] = useState(false);
   const [isCaptionOpen, setIsCaptionOpen] = useState(false);
   const mediaContainerRef = useRef<HTMLDivElement | null>(null);
   const captionPanelRef = useRef<HTMLDivElement | null>(null);
@@ -155,105 +125,16 @@ export const PopClipTile = memo(function PopClipTile({
   const isVideo =
     item.mediaType === "VIDEO" || item.assetType === "video" || Boolean(rawVideoUrl);
   const allowLocation = item.creator.allowLocation !== false;
-  const availableLabel = item.creator.isAvailable ? "Disponible" : "";
-  const responseLabel = (item.creator.responseTime || "").trim();
-  const locationLabel = allowLocation ? (item.creator.locationLabel || "").trim() : "";
-  const locationDisplay = locationLabel ? `${locationLabel} (aprox.)` : "";
-  const distanceLabel =
-    allowLocation && Number.isFinite(item.distanceKm ?? NaN)
-      ? `≈${Math.round(item.distanceKm as number)} km`
-      : "";
-  const ratingValue =
-    typeof item.creatorRating === "number" && Number.isFinite(item.creatorRating)
-      ? item.creatorRating
-      : typeof item.creator.ratingAvg === "number" && Number.isFinite(item.creator.ratingAvg)
-        ? item.creator.ratingAvg
-        : null;
-  const ratingCount =
-    typeof item.creatorReviewCount === "number"
-      ? item.creatorReviewCount
-      : typeof item.creator.ratingCount === "number"
-        ? item.creator.ratingCount
-        : 0;
-  const hasRating = typeof ratingValue === "number" && ratingCount > 0;
-  const ratingLabel = hasRating ? `${ratingValue.toFixed(1)} · ${ratingCount} reseñas` : "";
-  const rawServices = Array.isArray(item.creator.offerTags) ? item.creator.offerTags : [];
-  const serviceTags = Array.from(
-    new Set(
-      rawServices
-        .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
-        .filter((tag) => Boolean(tag))
-    )
-  );
-  const visibleServiceTags = serviceTags.slice(0, 6);
-  const extraServiceCount = Math.max(0, serviceTags.length - visibleServiceTags.length);
-  const locationDot = (
-    <span className="h-1.5 w-1.5 rounded-full bg-red-400" aria-hidden="true" />
-  );
-  const ratingStar = (
-    <Star className="h-3 w-3 text-amber-300" fill="currentColor" aria-hidden="true" />
-  );
-  type MetaChipItem = { key: string; label: string; icon?: ReactNode };
-  const serviceChips: MetaChipItem[] = visibleServiceTags.map((tag, index) => ({
-    key: `service-${tag}-${index}`,
-    label: tag,
-  }));
-  const serviceMoreChip: MetaChipItem | null =
-    extraServiceCount > 0 ? { key: "service-more", label: `+${extraServiceCount} más` } : null;
-  const baseChips: MetaChipItem[] = [
-    availableLabel ? { key: "available", label: availableLabel } : null,
-    responseLabel ? { key: "response", label: responseLabel } : null,
-    distanceLabel ? { key: "distance", label: distanceLabel } : null,
-    locationDisplay ? { key: "location", label: locationDisplay, icon: locationDot } : null,
-  ].filter(Boolean) as MetaChipItem[];
-  const ratingChip: MetaChipItem | null = hasRating
-    ? { key: "rating", label: ratingLabel, icon: ratingStar }
-    : null;
-  const isDesktopLg = useMediaQuery("(min-width: 1024px)");
-  const isTabletUp = useMediaQuery("(min-width: 768px)");
-  const maxChips = isDesktopLg ? 3 : isTabletUp ? 4 : 5;
-  const visibleChips = baseChips.slice(0, maxChips);
-  const hiddenBaseChips = baseChips.slice(maxChips);
-  const overflowMetaItems = ratingChip ? [...hiddenBaseChips, ratingChip] : hiddenBaseChips;
-  const hiddenCount = hiddenBaseChips.length + (ratingChip ? 1 : 0) + serviceTags.length;
-  const chipItemsTitle = [
-    ...baseChips.map((chip) => chip.label),
-    ...(ratingChip ? [ratingChip.label] : []),
-    ...serviceTags,
-  ].join(" • ");
-  const overflowChipClass =
-    "inline-flex items-center justify-center rounded-full border border-white/15 bg-white/10 px-2 py-1 text-[11px] leading-none font-medium text-white/90 min-w-[44px] shrink-0";
-  const renderMetaChip = (chip: MetaChipItem) => (
-    <span
-      key={chip.key}
-      className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-white/15 bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold text-white/90"
-    >
-      {chip.icon ? <span className="inline-flex items-center">{chip.icon}</span> : null}
-      <span>{chip.label}</span>
-    </span>
-  );
+  const creatorLocationLabel = allowLocation ? (item.creator.locationLabel || "").trim() : "";
+  const showLocationHint = variant === "explore" && Boolean(creatorLocationLabel);
+  const hasDistance = Number.isFinite(item.distanceKm ?? NaN);
+  const formattedDistance = hasDistance ? formatDistanceKm(item.distanceKm as number) : "";
+  const showActivateLocation = showLocationHint && !hasDistance && !hasLocationCenter;
   const creatorInitial = item.creator.displayName?.trim()?.[0]?.toUpperCase() || "C";
   const quickActions: ContextMenuItem[] = [];
   const canOrganize = Boolean(isSaved && onOrganize && organizerItemId);
   const canToggleSave = Boolean(isSaved && onToggleSave);
   const hasSavedActions = canOrganize || canToggleSave;
-  const MIN_FOLLOW_MUTATION_MS = 400;
-  const resolvedSecondaryCta =
-    secondaryCta === undefined
-      ? {
-          label: "Ver perfil",
-          href: profileHref,
-        }
-      : secondaryCta;
-  const followButtonBaseClass =
-    followButtonVariant === "secondary"
-      ? "inline-flex h-10 min-w-[110px] items-center justify-center rounded-full border px-4 text-[12px] font-semibold transition duration-150 ease-out active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[color:var(--surface-1)]"
-      : "inline-flex min-w-[84px] items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold transition duration-150 ease-out active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[color:var(--surface-1)]";
-  const followButtonStateClass = following
-    ? "border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)]"
-    : followButtonVariant === "secondary"
-      ? "border-white/20 bg-white/5 text-white/90 hover:bg-white/10"
-      : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:bg-[color:var(--surface-3)]";
   if (canOrganize && organizerItemId && onOrganize) {
     quickActions.push({
       label: "Mover a...",
@@ -278,8 +159,18 @@ export const PopClipTile = memo(function PopClipTile({
   if (onShare) {
     quickActions.push({ label: "Compartir", icon: "send", onClick: () => onShare(item) });
   }
+  if (quickActions.length > 0) {
+    quickActions.push({ label: "divider", divider: true });
+  }
+  quickActions.push({
+    label: "Ver perfil",
+    icon: "user",
+    onClick: () => {
+      void router.push(profileHref);
+    },
+  });
   if (onReport) {
-    if (quickActions.length > 0) quickActions.push({ label: "divider", divider: true });
+    quickActions.push({ label: "divider", divider: true });
     quickActions.push({
       label: "Reportar",
       icon: "alert",
@@ -320,89 +211,6 @@ export const PopClipTile = memo(function PopClipTile({
     };
   }, [isCaptionOpen]);
 
-  useEffect(() => {
-    if (hiddenCount === 0 && chipsOpen) setChipsOpen(false);
-  }, [chipsOpen, hiddenCount]);
-
-  useEffect(() => {
-    if (!chipsOpen) return;
-    if (typeof window === "undefined") return;
-    const handleAnyScroll = () => setChipsOpen(false);
-    const listenerOptions: AddEventListenerOptions = { passive: true, capture: true };
-    window.addEventListener("scroll", handleAnyScroll, listenerOptions);
-    window.addEventListener("wheel", handleAnyScroll, listenerOptions);
-    window.addEventListener("touchmove", handleAnyScroll, listenerOptions);
-    const handleRouteChange = () => setChipsOpen(false);
-    router.events?.on("routeChangeStart", handleRouteChange);
-    return () => {
-      window.removeEventListener("scroll", handleAnyScroll, listenerOptions);
-      window.removeEventListener("wheel", handleAnyScroll, listenerOptions);
-      window.removeEventListener("touchmove", handleAnyScroll, listenerOptions);
-      router.events?.off("routeChangeStart", handleRouteChange);
-    };
-  }, [chipsOpen, router.events]);
-
-  const handleToggleFollow = async (event: MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (!hasCreatorId || followPending) return;
-    const prevFollowing = following;
-    const nextFollowing = !prevFollowing;
-    const startTime = Date.now();
-    emitFollowChange(creatorId, { isFollowing: nextFollowing, updatedAt: startTime });
-    setFollowPending(true);
-    try {
-      const res = await fetch("/api/follow/toggle", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ creatorId }),
-      });
-      if (res.status === 401) throw new Error("AUTH_REQUIRED");
-      if (!res.ok) throw new Error("request failed");
-      const payload = (await res.json().catch(() => null)) as
-        | { isFollowing?: boolean; following?: boolean; followersCount?: number }
-        | null;
-      const resolvedFollowing =
-        typeof payload?.isFollowing === "boolean"
-          ? payload.isFollowing
-          : typeof payload?.following === "boolean"
-          ? payload.following
-          : nextFollowing;
-      const resolvedFollowersCount =
-        typeof payload?.followersCount === "number" && Number.isFinite(payload.followersCount)
-          ? payload.followersCount
-          : undefined;
-      const resolvedAt = Math.max(Date.now(), startTime + 1);
-      onFollowChange?.(creatorId, resolvedFollowing);
-      emitFollowChange(creatorId, {
-        isFollowing: resolvedFollowing,
-        followersCount: resolvedFollowersCount,
-        updatedAt: resolvedAt,
-      });
-      setFollowSnapshot(creatorId, {
-        isFollowing: resolvedFollowing,
-        followersCount: resolvedFollowersCount,
-        updatedAt: resolvedAt,
-      });
-    } catch (err) {
-      emitFollowChange(creatorId, {
-        isFollowing: prevFollowing,
-        updatedAt: Math.max(Date.now(), startTime + 1),
-      });
-      if (err instanceof Error && err.message === "AUTH_REQUIRED") {
-        onFollowError?.("Inicia sesion para seguir.");
-      } else {
-        onFollowError?.("No se pudo actualizar el seguimiento.");
-      }
-    } finally {
-      const elapsed = Date.now() - startTime;
-      if (elapsed < MIN_FOLLOW_MUTATION_MS) {
-        await new Promise((resolve) => setTimeout(resolve, MIN_FOLLOW_MUTATION_MS - elapsed));
-      }
-      setFollowPending(false);
-    }
-  };
-
   return (
     <div
       style={{ contentVisibility: "auto", containIntrinsicSize: "360px 680px", contain: "layout paint" }}
@@ -431,58 +239,67 @@ export const PopClipTile = memo(function PopClipTile({
       )}
     >
       {showHeader ? (
-        <div className="flex items-center justify-between gap-3 px-3 pt-3">
-          <Link
-            href={profileHref}
-            prefetch={false}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => event.stopPropagation()}
-            onKeyDown={(event) => event.stopPropagation()}
-            aria-label={`Ver perfil de @${item.creator.handle}`}
-            className="inline-flex min-w-0 items-center gap-2 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1.5 text-[color:var(--text)] transition hover:bg-[color:var(--surface-3)]"
-          >
-            <span className="inline-flex min-w-0 items-center gap-2">
-              <span className="h-7 w-7 shrink-0 overflow-hidden rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]">
-                {showAvatar ? (
-                  <Image
-                    src={normalizeImageSrc(avatarSrc)}
-                    alt={item.creator.displayName}
-                    width={28}
-                    height={28}
-                    className="h-full w-full object-cover"
-                    onError={() => setAvatarFailed(true)}
-                  />
-                ) : (
-                  <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-[color:var(--text)]">
-                    {creatorInitial}
-                  </span>
-                )}
-              </span>
-              <span className="flex min-w-0 items-center gap-1">
-                <span className="truncate text-xs font-semibold text-[color:var(--text)]">
-                  @{item.creator.handle}
-                </span>
-                {item.creator.isVerified ? (
-                  <VerifiedInlineBadge collapseAt="lg" className="shrink-0" />
-                ) : null}
-              </span>
-            </span>
-          </Link>
-          <div className="flex items-center gap-2">
-            {hasCreatorId ? (
-            <button
-              type="button"
-              aria-pressed={following}
-              aria-label={following ? "Dejar de seguir" : "Seguir creador"}
-              disabled={followPending}
+        <div className="flex items-start justify-between gap-3 px-3 pt-3">
+          <div className="flex min-w-0 flex-col gap-1">
+            <Link
+              href={profileHref}
+              prefetch={false}
               onPointerDown={(event) => event.stopPropagation()}
-              onClick={handleToggleFollow}
+              onClick={(event) => event.stopPropagation()}
               onKeyDown={(event) => event.stopPropagation()}
-              className={clsx(followButtonBaseClass, followButtonStateClass)}
+              aria-label={`Ver perfil de @${item.creator.handle}`}
+              className="inline-flex min-w-0 items-center gap-2 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1.5 text-[color:var(--text)] transition hover:bg-[color:var(--surface-3)]"
             >
-              <FollowButtonLabel isFollowing={following} isPending={followPending} />
-            </button>
-          ) : null}
+              <span className="inline-flex min-w-0 items-center gap-2">
+                <span className="h-7 w-7 shrink-0 overflow-hidden rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]">
+                  {showAvatar ? (
+                    <Image
+                      src={normalizeImageSrc(avatarSrc)}
+                      alt={item.creator.displayName}
+                      width={28}
+                      height={28}
+                      className="h-full w-full object-cover"
+                      onError={() => setAvatarFailed(true)}
+                    />
+                  ) : (
+                    <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-[color:var(--text)]">
+                      {creatorInitial}
+                    </span>
+                  )}
+                </span>
+                <span className="flex min-w-0 items-center gap-1">
+                  <span className="truncate text-xs font-semibold text-[color:var(--text)]">
+                    @{item.creator.handle}
+                  </span>
+                  {item.creator.isVerified ? (
+                    <VerifiedInlineBadge collapseAt="lg" className="shrink-0" />
+                  ) : null}
+                </span>
+              </span>
+            </Link>
+            {showLocationHint ? (
+              showActivateLocation && onRequestLocation ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onRequestLocation();
+                  }}
+                  className="text-left text-[10px] font-medium text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                >
+                  <span>📍 {creatorLocationLabel} (aprox.) · </span>
+                  <span className="text-[color:var(--brand)] underline decoration-[color:rgba(var(--brand-rgb),0.6)] underline-offset-2">
+                    Activa ubicación
+                  </span>
+                </button>
+              ) : (
+                <div className="text-[10px] text-[color:var(--muted)]">
+                  <span>📍 {creatorLocationLabel} (aprox.)</span>
+                  {hasDistance ? <span> · a {formattedDistance} de ti</span> : null}
+                </div>
+              )
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -698,176 +515,7 @@ export const PopClipTile = memo(function PopClipTile({
             isProfileCompact ? "pb-2 pt-2" : "pb-3 pt-3"
           )}
         >
-          {baseChips.length > 0 || hiddenCount > 0 ? (
-            <div className="relative flex flex-wrap items-center gap-2">
-              {visibleChips.map((chip) => renderMetaChip(chip))}
-              {hiddenCount > 0 ? (
-                <>
-                  {isTabletUp ? (
-                    <Popover.Root open={chipsOpen} onOpenChange={setChipsOpen}>
-                      <Popover.Trigger asChild>
-                        <button
-                          type="button"
-                          aria-label={`Ver ${hiddenCount} etiquetas más`}
-                          title={chipItemsTitle}
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onClick={(event) => event.stopPropagation()}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" || event.key === " ") {
-                              event.stopPropagation();
-                            }
-                          }}
-                          className={overflowChipClass}
-                        >
-                          +{hiddenCount}
-                          <span className="hidden md:inline">&nbsp;más</span>
-                        </button>
-                      </Popover.Trigger>
-                      <Popover.Portal>
-                        <Popover.Content
-                          side="top"
-                          align="start"
-                          sideOffset={8}
-                          collisionPadding={12}
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onClick={(event) => event.stopPropagation()}
-                          className="z-50 w-fit max-w-[260px] min-w-[160px] rounded-2xl border border-white/10 bg-black/80 p-2 shadow-lg backdrop-blur"
-                        >
-                          {overflowMetaItems.length > 0 ? (
-                            <div className="flex flex-wrap gap-2">
-                              {overflowMetaItems.map((chip) => renderMetaChip(chip))}
-                            </div>
-                          ) : null}
-                          {serviceChips.length > 0 ? (
-                            <div className="mt-2 border-t border-white/10 pt-2">
-                              <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-white/60">
-                                Servicios
-                              </p>
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                {serviceChips.map((chip) => renderMetaChip(chip))}
-                                {serviceMoreChip ? renderMetaChip(serviceMoreChip) : null}
-                              </div>
-                            </div>
-                          ) : null}
-                        </Popover.Content>
-                      </Popover.Portal>
-                    </Popover.Root>
-                  ) : (
-                    <Dialog.Root open={chipsOpen} onOpenChange={setChipsOpen}>
-                      <Dialog.Trigger asChild>
-                        <button
-                          type="button"
-                          aria-label={`Ver ${hiddenCount} etiquetas más`}
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onClick={(event) => event.stopPropagation()}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" || event.key === " ") {
-                              event.stopPropagation();
-                            }
-                          }}
-                          className={overflowChipClass}
-                        >
-                          +{hiddenCount}
-                          <span className="hidden md:inline">&nbsp;más</span>
-                        </button>
-                      </Dialog.Trigger>
-                      <Dialog.Portal>
-                        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm" />
-                        <Dialog.Content
-                          role="dialog"
-                          aria-label="Etiquetas"
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onClick={(event) => event.stopPropagation()}
-                          className="fixed inset-x-0 bottom-0 z-50 max-h-[70vh] w-full overflow-auto rounded-t-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-2xl"
-                        >
-                          <div className="flex items-center justify-between border-b border-[color:var(--surface-border)] px-4 py-3">
-                            <div className="flex items-center gap-2">
-                              <span className="h-7 w-7 shrink-0 overflow-hidden rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)]">
-                                {showAvatar ? (
-                                  <Image
-                                    src={normalizeImageSrc(avatarSrc)}
-                                    alt={item.creator.displayName}
-                                    width={28}
-                                    height={28}
-                                    className="h-full w-full object-cover"
-                                    onError={() => setAvatarFailed(true)}
-                                  />
-                                ) : (
-                                  <span className="flex h-full w-full items-center justify-center text-[10px] font-semibold text-[color:var(--text)]">
-                                    {creatorInitial}
-                                  </span>
-                                )}
-                              </span>
-                              <div>
-                                <p className="text-sm font-semibold text-[color:var(--text)]">
-                                  Etiquetas de @{item.creator.handle}
-                                </p>
-                              </div>
-                            </div>
-                            <Dialog.Close asChild>
-                              <button
-                                type="button"
-                                aria-label="Cerrar"
-                                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-sm font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
-                              >
-                                ✕
-                              </button>
-                            </Dialog.Close>
-                          </div>
-                          <div className="px-4 py-4">
-                            <div className="space-y-2 text-sm text-[color:var(--text)]">
-                              {locationDisplay ? (
-                                <div className="flex items-center gap-2">
-                                  {locationDot}
-                                  <span>{locationDisplay}</span>
-                                </div>
-                              ) : null}
-                              {distanceLabel ? (
-                                <div className="flex items-center gap-2 text-white/80">
-                                  <span className="h-1.5 w-1.5 rounded-full bg-white/40" aria-hidden="true" />
-                                  <span>{distanceLabel}</span>
-                                </div>
-                              ) : null}
-                              {ratingChip ? (
-                                <div className="flex items-center gap-2 text-white/90">
-                                  {ratingStar}
-                                  <span>{ratingLabel}</span>
-                                </div>
-                              ) : null}
-                              {responseLabel ? (
-                                <div className="flex items-center gap-2 text-white/80">
-                                  <span className="h-1.5 w-1.5 rounded-full bg-white/40" aria-hidden="true" />
-                                  <span>{responseLabel}</span>
-                                </div>
-                              ) : null}
-                              {availableLabel ? (
-                                <div className="flex items-center gap-2 text-white/80">
-                                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400/80" aria-hidden="true" />
-                                  <span>{availableLabel}</span>
-                                </div>
-                              ) : null}
-                            </div>
-                            {serviceChips.length > 0 ? (
-                              <div className="mt-4">
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/60">
-                                  Servicios
-                                </p>
-                                <div className="mt-2 flex flex-wrap gap-2">
-                                  {serviceChips.map((chip) => renderMetaChip(chip))}
-                                  {serviceMoreChip ? renderMetaChip(serviceMoreChip) : null}
-                                </div>
-                              </div>
-                            ) : null}
-                          </div>
-                        </Dialog.Content>
-                      </Dialog.Portal>
-                    </Dialog.Root>
-                  )}
-                </>
-              ) : null}
-            </div>
-          ) : null}
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
+          <div className="flex">
             <Link
               href={chatHref}
               onPointerDown={(event) => event.stopPropagation()}
@@ -882,43 +530,6 @@ export const PopClipTile = memo(function PopClipTile({
                 Abrir chat
               </span>
             </Link>
-            {resolvedSecondaryCta ? (
-              resolvedSecondaryCta.href ? (
-                <Link
-                  href={resolvedSecondaryCta.href}
-                  prefetch={false}
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={(event) => event.stopPropagation()}
-                  onKeyDown={(event) => event.stopPropagation()}
-                  aria-label={resolvedSecondaryCta.ariaLabel || resolvedSecondaryCta.label}
-                  className="flex w-full"
-                >
-                  <span className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-full border border-white/20 bg-white/5 px-4 text-[12px] font-semibold text-white/90 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40">
-                    {resolvedSecondaryCta.label}
-                    <span aria-hidden="true">→</span>
-                  </span>
-                </Link>
-              ) : (
-                <button
-                  type="button"
-                  aria-label={resolvedSecondaryCta.ariaLabel || resolvedSecondaryCta.label}
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                  }}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    resolvedSecondaryCta.onClick?.(event);
-                  }}
-                  onKeyDown={(event) => event.stopPropagation()}
-                  className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-full border border-white/20 bg-white/5 px-4 text-[12px] font-semibold text-white/90 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
-                >
-                  {resolvedSecondaryCta.label}
-                  <span aria-hidden="true">→</span>
-                </button>
-              )
-            ) : null}
           </div>
         </div>
       ) : null}

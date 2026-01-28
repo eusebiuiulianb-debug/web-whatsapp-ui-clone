@@ -4,8 +4,11 @@ import { MessageCircle, Play, RotateCcw, Sparkles, X } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/router";
 import { useCallback, useEffect, useRef, useState, type TouchEvent, type WheelEvent } from "react";
+import { emitFollowChange, setFollowSnapshot } from "../../lib/followEvents";
+import { useFollowState } from "../../lib/useFollowState";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
+import { FollowButtonLabel } from "../follow/FollowButtonLabel";
 import { IconGlyph } from "../ui/IconGlyph";
 import { MetaChip } from "../ui/MetaChip";
 import { VerifiedInlineBadge } from "../ui/VerifiedInlineBadge";
@@ -16,6 +19,7 @@ const CAPTION_PREVIEW_LIMIT = 140;
 const WHEEL_LOCK_MS = 450;
 const WHEEL_THRESHOLD = 32;
 const SWIPE_THRESHOLD = 48;
+const MIN_FOLLOW_MUTATION_MS = 400;
 
 type Props = {
   open: boolean;
@@ -25,6 +29,10 @@ type Props = {
   onNavigate: (nextIndex: number) => void;
   onToggleSave?: (item: PopClipTileItem) => void;
   isSaved?: (item: PopClipTileItem) => boolean;
+  showFollow?: boolean;
+  isFollowing?: (item: PopClipTileItem) => boolean;
+  onFollowChange?: (creatorId: string, isFollowing: boolean) => void;
+  onFollowError?: (message: string) => void;
   menuItems?: (item: PopClipTileItem) => ContextMenuItem[];
   buildChatHref: (item: PopClipTileItem) => string;
   buildProfileHref: (item: PopClipTileItem) => string;
@@ -38,6 +46,10 @@ export function PopClipViewer({
   onNavigate,
   onToggleSave,
   isSaved,
+  showFollow = false,
+  isFollowing,
+  onFollowChange,
+  onFollowError,
   menuItems,
   buildChatHref,
   buildProfileHref,
@@ -53,6 +65,7 @@ export function PopClipViewer({
   const [hasScrolled, setHasScrolled] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [isEnded, setIsEnded] = useState(false);
+  const [followPending, setFollowPending] = useState(false);
   const contentScrollRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const isDesktop = useMediaQuery("(min-width: 768px) and (pointer: fine)");
@@ -69,6 +82,10 @@ export function PopClipViewer({
     setIsPaused(false);
     setIsEnded(false);
   }, [open, activeItem?.id]);
+
+  useEffect(() => {
+    setFollowPending(false);
+  }, [activeItem?.creatorId]);
 
   useEffect(() => {
     if (!open || !isDesktop) {
@@ -192,6 +209,12 @@ export function PopClipViewer({
     ? captionText
     : `${captionText.slice(0, CAPTION_PREVIEW_LIMIT).trimEnd()}…`;
   const resolvedMenuItems = activeItem && menuItems ? menuItems(activeItem) : [];
+  const creatorId = (activeItem?.creatorId || "").trim();
+  const hasCreatorId = Boolean(creatorId);
+  const initialFollowing =
+    Boolean(showFollow && activeItem && isFollowing ? isFollowing(activeItem) : false);
+  const followState = useFollowState(showFollow ? creatorId : "", { isFollowing: initialFollowing });
+  const following = followState.isFollowing;
   const allowLocation = activeItem?.creator?.allowLocation !== false;
   const rawDistance =
     activeItem?.distanceKm ??
@@ -263,6 +286,65 @@ export function PopClipViewer({
     const playPromise = videoEl.play();
     if (playPromise && typeof playPromise.catch === "function") {
       playPromise.catch(() => null);
+    }
+  };
+
+  const handleToggleFollow = async () => {
+    if (!showFollow || !hasCreatorId || followPending) return;
+    const prevFollowing = following;
+    const nextFollowing = !prevFollowing;
+    const startTime = Date.now();
+    emitFollowChange(creatorId, { isFollowing: nextFollowing, updatedAt: startTime });
+    setFollowPending(true);
+    try {
+      const res = await fetch("/api/follow/toggle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ creatorId }),
+      });
+      if (res.status === 401) throw new Error("AUTH_REQUIRED");
+      if (!res.ok) throw new Error("request failed");
+      const payload = (await res.json().catch(() => null)) as
+        | { isFollowing?: boolean; following?: boolean; followersCount?: number }
+        | null;
+      const resolvedFollowing =
+        typeof payload?.isFollowing === "boolean"
+          ? payload.isFollowing
+          : typeof payload?.following === "boolean"
+          ? payload.following
+          : nextFollowing;
+      const resolvedFollowersCount =
+        typeof payload?.followersCount === "number" && Number.isFinite(payload.followersCount)
+          ? payload.followersCount
+          : undefined;
+      const resolvedAt = Math.max(Date.now(), startTime + 1);
+      onFollowChange?.(creatorId, resolvedFollowing);
+      emitFollowChange(creatorId, {
+        isFollowing: resolvedFollowing,
+        followersCount: resolvedFollowersCount,
+        updatedAt: resolvedAt,
+      });
+      setFollowSnapshot(creatorId, {
+        isFollowing: resolvedFollowing,
+        followersCount: resolvedFollowersCount,
+        updatedAt: resolvedAt,
+      });
+    } catch (err) {
+      emitFollowChange(creatorId, {
+        isFollowing: prevFollowing,
+        updatedAt: Math.max(Date.now(), startTime + 1),
+      });
+      if (err instanceof Error && err.message === "AUTH_REQUIRED") {
+        onFollowError?.("Inicia sesion para seguir.");
+      } else {
+        onFollowError?.("No se pudo actualizar el seguimiento.");
+      }
+    } finally {
+      const elapsed = Date.now() - startTime;
+      if (elapsed < MIN_FOLLOW_MUTATION_MS) {
+        await new Promise((resolve) => setTimeout(resolve, MIN_FOLLOW_MUTATION_MS - elapsed));
+      }
+      setFollowPending(false);
     }
   };
 
@@ -429,12 +511,37 @@ export function PopClipViewer({
               >
                 <div className="flex flex-col gap-4">
                   <div className="flex flex-col gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-semibold text-[color:var(--text)]">
-                        @{activeItem.creator.handle}
-                      </span>
-                      {activeItem.creator.isVerified ? (
-                        <VerifiedInlineBadge collapseAt="lg" className="shrink-0" />
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-semibold text-[color:var(--text)]">
+                          @{activeItem.creator.handle}
+                        </span>
+                        {activeItem.creator.isVerified ? (
+                          <VerifiedInlineBadge collapseAt="lg" className="shrink-0" />
+                        ) : null}
+                      </div>
+                      {showFollow && hasCreatorId ? (
+                        <button
+                          type="button"
+                          onClick={handleToggleFollow}
+                          disabled={followPending}
+                          aria-pressed={following}
+                          aria-label={following ? "Dejar de seguir" : "Seguir"}
+                          className={clsx(
+                            "inline-flex h-8 items-center justify-center rounded-full border px-3 text-[11px] font-semibold transition",
+                            following
+                              ? "border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] text-white hover:bg-[color:var(--brand)]"
+                              : "border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:bg-[color:var(--surface-3)]",
+                            followPending && "opacity-60 cursor-not-allowed"
+                          )}
+                        >
+                          <FollowButtonLabel
+                            isFollowing={following}
+                            isPending={followPending}
+                            followLabel="Seguir"
+                            followingLabel="Siguiendo"
+                          />
+                        </button>
                       ) : null}
                     </div>
                     {chipLabels.length > 0 ? (
@@ -461,7 +568,7 @@ export function PopClipViewer({
                     <button
                       type="button"
                       onClick={() => navigateFromViewer(chatHref)}
-                      className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-white/20 bg-white/5 px-4 text-[12px] font-semibold text-white/90 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
+                      className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] px-4 text-[12px] font-semibold text-white shadow-sm transition hover:bg-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
                     >
                       <span className="inline-flex items-center gap-2">
                         <MessageCircle className="h-4 w-4" aria-hidden="true" />
@@ -471,7 +578,7 @@ export function PopClipViewer({
                     <button
                       type="button"
                       onClick={() => navigateFromViewer(profileHref)}
-                      className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] px-4 text-[12px] font-semibold text-white shadow-sm transition hover:bg-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
+                      className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-white/20 bg-white/5 px-4 text-[12px] font-semibold text-white/90 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
                     >
                       <span className="inline-flex min-w-0 items-center gap-2">
                         <span className="truncate">Ver perfil</span>

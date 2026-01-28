@@ -128,7 +128,11 @@ type SearchAction = {
 };
 
 const FILTER_QUERY_KEYS = ["km", "lat", "lng", "loc", "avail", "r24", "vip"] as const;
+const FOLLOWING_QUERY_KEY = "following";
+const CATEGORY_QUERY_KEY = "cat";
 const DEFAULT_FILTER_KM = 25;
+const MIN_FILTER_KM = 5;
+const MAX_FILTER_KM = 200;
 const RECENT_SEARCH_KEY = "ip_recent_searches_v1";
 const MAX_RECENT_SEARCHES = 6;
 
@@ -304,6 +308,7 @@ export default function Explore() {
   const [toast, setToast] = useState<{ message: string; actionLabel?: string; onAction?: () => void } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedQueryRef = useRef(false);
+  const followingQueryRef = useRef(false);
   const [organizerOpen, setOrganizerOpen] = useState(false);
   const [organizerItemId, setOrganizerItemId] = useState<string | null>(null);
   const [organizerCollectionId, setOrganizerCollectionId] = useState<string | null>(null);
@@ -388,10 +393,30 @@ export default function Explore() {
     const ids = savedItemsAll.filter((item) => item.type === "CREATOR").map((item) => item.entityId);
     return new Set(ids);
   }, [savedItemsAll]);
-  const hasLocation = useMemo(
-    () => Number.isFinite(filters.lat ?? NaN) && Number.isFinite(filters.lng ?? NaN),
-    [filters.lat, filters.lng]
-  );
+  const centerLat = typeof filters.lat === "number" && Number.isFinite(filters.lat) ? filters.lat : null;
+  const centerLng = typeof filters.lng === "number" && Number.isFinite(filters.lng) ? filters.lng : null;
+  const hasLocation = centerLat !== null && centerLng !== null;
+  const radiusKm = useMemo(() => {
+    const raw = Number.isFinite(filters.km ?? NaN) ? (filters.km as number) : DEFAULT_FILTER_KM;
+    const rounded = Math.round(raw);
+    if (rounded < MIN_FILTER_KM) return MIN_FILTER_KM;
+    if (rounded > MAX_FILTER_KM) return MAX_FILTER_KM;
+    return rounded;
+  }, [filters.km]);
+  const locationCenterLabel = useMemo(() => {
+    if (!hasLocation) return "";
+    const label = (filters.loc || "").trim();
+    return label || "Mi ubicación";
+  }, [filters.loc, hasLocation]);
+  const feedQueryString = useMemo(() => {
+    const params = new URLSearchParams(filterQueryString);
+    if (hasLocation && centerLat !== null && centerLng !== null) {
+      params.set("centerLat", String(centerLat));
+      params.set("centerLng", String(centerLng));
+      params.set("radiusKm", String(radiusKm));
+    }
+    return params.toString();
+  }, [centerLat, centerLng, filterQueryString, hasLocation, radiusKm]);
   const searchTerm = search.trim();
   const hasSearchValue = search.length > 0;
   const showSearchPanel = isSearchOpen;
@@ -440,12 +465,6 @@ export default function Explore() {
     void router.push({ pathname: router.pathname, query: baseQuery }, undefined, { shallow: true });
   }, [router]);
 
-  const resetAllFilters = useCallback(() => {
-    setSearch("");
-    setSelectedCategoryId(null);
-    clearQueryFilters();
-  }, [clearQueryFilters]);
-
   const updateSavedQuery = useCallback(
     (options: { saved: boolean; view?: "all" | "collections"; collectionId?: string | null }) => {
       const baseQuery = sanitizeQuery(router.query);
@@ -453,10 +472,12 @@ export default function Explore() {
         delete baseQuery.saved;
         delete baseQuery.view;
         delete baseQuery.collectionId;
+        delete baseQuery[FOLLOWING_QUERY_KEY];
         void router.push({ pathname: "/explore", query: baseQuery }, undefined, { shallow: true });
         return;
       }
       baseQuery.saved = "1";
+      delete baseQuery[FOLLOWING_QUERY_KEY];
       if (options.view === "collections" || options.collectionId) {
         baseQuery.view = "collections";
       } else {
@@ -471,6 +492,43 @@ export default function Explore() {
     },
     [router]
   );
+
+  const updateFollowingQuery = useCallback(
+    (enabled: boolean) => {
+      const baseQuery = sanitizeQuery(router.query);
+      if (!enabled) {
+        delete baseQuery[FOLLOWING_QUERY_KEY];
+        void router.push({ pathname: "/explore", query: baseQuery }, undefined, { shallow: true });
+        return;
+      }
+      baseQuery[FOLLOWING_QUERY_KEY] = "1";
+      delete baseQuery.saved;
+      delete baseQuery.view;
+      delete baseQuery.collectionId;
+      void router.push({ pathname: "/explore", query: baseQuery }, undefined, { shallow: true });
+    },
+    [router]
+  );
+
+  const updateCategoryQuery = useCallback(
+    (categoryId: string | null) => {
+      const baseQuery = sanitizeQuery(router.query);
+      if (categoryId) {
+        baseQuery[CATEGORY_QUERY_KEY] = categoryId;
+      } else {
+        delete baseQuery[CATEGORY_QUERY_KEY];
+      }
+      void router.push({ pathname: "/explore", query: baseQuery }, undefined, { shallow: true });
+    },
+    [router]
+  );
+
+  const resetAllFilters = useCallback(() => {
+    setSearch("");
+    setSelectedCategoryId(null);
+    clearQueryFilters();
+    updateCategoryQuery(null);
+  }, [clearQueryFilters, updateCategoryQuery]);
 
   const exitSavedView = useCallback(() => {
     setSavedOnly(false);
@@ -501,6 +559,11 @@ export default function Explore() {
   const scrollToTop = useCallback(() => {
     if (typeof window === "undefined") return;
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  const openLocationFilters = useCallback(() => {
+    setOpenLocationPicker(true);
+    setFilterSheetOpen(true);
   }, []);
 
   useEffect(() => {
@@ -630,7 +693,31 @@ export default function Explore() {
       setSavedView("all");
       setActiveCollectionId(null);
     }
-  }, [router.isReady, router.query.collectionId, router.query.saved, router.query.view]);
+    const followingValue = pickQueryValue(router.query[FOLLOWING_QUERY_KEY]);
+    const followingByQuery = followingValue === "1" || followingValue === "true";
+    if (followingByQuery) {
+      followingQueryRef.current = true;
+      setSavedOnly(false);
+      setFollowingOnly(true);
+      setExploreIntent("all");
+      return;
+    }
+    if (followingQueryRef.current) {
+      followingQueryRef.current = false;
+      setFollowingOnly(false);
+    }
+  }, [router.isReady, router.query, router.query.collectionId, router.query.saved, router.query.view, router.query.following]);
+
+  useEffect(() => {
+    if (!router.isReady) return;
+    const categoryValue = pickQueryValue(router.query[CATEGORY_QUERY_KEY]).trim();
+    if (!categoryValue) {
+      setSelectedCategoryId(null);
+      return;
+    }
+    const matched = HOME_CATEGORIES.find((category) => category.id === categoryValue);
+    setSelectedCategoryId(matched ? matched.id : null);
+  }, [router.isReady, router.query, router.query.cat]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1451,7 +1538,7 @@ export default function Explore() {
     loadMorePendingRef.current = false;
     setFeedLoadingMore(false);
     const controller = new AbortController();
-    const params = new URLSearchParams(filterQueryString);
+    const params = new URLSearchParams(feedQueryString);
     params.set("take", String(FEED_PAGE_SIZE));
     const endpoint = `/api/public/popclips/feed?${params.toString()}`;
     setFeedLoading(true);
@@ -1459,7 +1546,7 @@ export default function Explore() {
     setFeedItems([]);
     setFeedCursor(null);
     setSeedError("");
-    fetch(endpoint, { signal: controller.signal })
+    fetch(endpoint, { signal: controller.signal, cache: "no-store" })
       .then(async (res) => {
         const payload = (await res.json().catch(() => null)) as
           | { items?: PopClipFeedItem[]; nextCursor?: string | null }
@@ -1485,7 +1572,7 @@ export default function Explore() {
         }
       });
     return () => controller.abort();
-  }, [filterQueryString, seedKey]);
+  }, [feedQueryString, seedKey]);
 
   const selectedCategory = useMemo(
     () => HOME_CATEGORIES.find((category) => category.id === selectedCategoryId) ?? null,
@@ -1571,15 +1658,17 @@ export default function Explore() {
   const savedLabel = showSavedCount ? `Guardados · ${savedCount}` : "Guardados";
   const followingLabel =
     typeof followingTotal === "number" ? `Siguiendo (${followingTotal})` : "Siguiendo";
+  const showLocationBanner = hasLocation && !savedOnly;
   const showCreatorsEmpty =
     !creatorsLoading && !creatorsError && filteredCreators.length === 0;
 
   const applyCategoryFilter = useCallback(
     (categoryId: string) => {
       setSelectedCategoryId(categoryId);
+      updateCategoryQuery(categoryId);
       scrollToPopclips();
     },
-    [scrollToPopclips]
+    [scrollToPopclips, updateCategoryQuery]
   );
 
   const { searchQueryActions, recentActions, shortcutActions, categoryActions, searchActions } = useMemo(() => {
@@ -1905,6 +1994,7 @@ export default function Explore() {
         onClick={() => {
           if (followingOnly) {
             setFollowingOnly(false);
+            updateFollowingQuery(false);
             return;
           }
           if (savedOnly) {
@@ -1912,6 +2002,7 @@ export default function Explore() {
           }
           setExploreIntent("all");
           setFollowingOnly(true);
+          updateFollowingQuery(true);
           scrollToPopclips();
         }}
       >
@@ -1969,7 +2060,7 @@ export default function Explore() {
     loadMoreAbortRef.current?.abort();
     const controller = new AbortController();
     loadMoreAbortRef.current = controller;
-    const params = new URLSearchParams(filterQueryString);
+    const params = new URLSearchParams(feedQueryString);
     params.set("take", String(FEED_PAGE_SIZE));
     params.set("cursor", feedCursor);
     const endpoint = `/api/public/popclips/feed?${params.toString()}`;
@@ -2000,7 +2091,7 @@ export default function Explore() {
       }
       loadMorePendingRef.current = false;
     }
-  }, [feedCursor, filterQueryString]);
+  }, [feedCursor, feedQueryString]);
 
   const openPopclipWithItems = useCallback((items: PopClipTileItem[], item: PopClipTileItem) => {
     const resolvedItems = items.length > 0 ? items : [item];
@@ -2025,7 +2116,7 @@ export default function Explore() {
   );
 
   useEffect(() => {
-    const params = new URLSearchParams(filterQueryString);
+    const params = new URLSearchParams(feedQueryString);
     params.set("limit", "12");
     const queryString = params.toString();
     const endpoint = queryString
@@ -2060,7 +2151,7 @@ export default function Explore() {
         if (!controller.signal.aborted) setCreatorsLoading(false);
       });
     return () => controller.abort();
-  }, [filterQueryString, seedKey]);
+  }, [feedQueryString, seedKey]);
 
   return (
     <>
@@ -2148,7 +2239,10 @@ export default function Explore() {
                   <FilterChip
                     label={selectedCategory.label}
                     active
-                    onClick={() => setSelectedCategoryId(null)}
+                    onClick={() => {
+                      setSelectedCategoryId(null);
+                      updateCategoryQuery(null);
+                    }}
                   />
                 </div>
               ) : null}
@@ -2178,6 +2272,16 @@ export default function Explore() {
               title="PopClips"
               subtitle="Explora clips y entra al chat cuando te encaje."
             >
+            {showLocationBanner ? (
+              <div className="mb-4 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 py-3 text-[color:var(--text)]">
+                <p className="text-xs font-semibold">
+                  Cerca de {locationCenterLabel} (aprox.) · Radio {radiusKm} km
+                </p>
+                <p className="mt-1 text-[11px] text-[color:var(--muted)]">
+                  Distancias aproximadas por privacidad.
+                </p>
+              </div>
+            ) : null}
             {savedOnly ? (
               <div className="space-y-4">
                 <div className="flex flex-wrap items-center gap-2">
@@ -2335,6 +2439,8 @@ export default function Explore() {
                                     onOrganize={openOrganizer}
                                     organizerItemId={organizerItemId}
                                     organizerCollectionId={organizerCollectionId}
+                                    hasLocationCenter={hasLocation}
+                                    onRequestLocation={openLocationFilters}
                                     onOpenCaption={openCaptionSheet}
                                     onCopyLink={handleCopyLink}
                                     onShare={handleShareLink}
@@ -2595,6 +2701,8 @@ export default function Explore() {
                         onOrganize={openOrganizer}
                         organizerItemId={organizerItemId}
                         organizerCollectionId={organizerCollectionId}
+                        hasLocationCenter={hasLocation}
+                        onRequestLocation={openLocationFilters}
                         onOpenCaption={openCaptionSheet}
                         onCopyLink={handleCopyLink}
                         onShare={handleShareLink}
@@ -2748,8 +2856,11 @@ export default function Explore() {
           open={categorySheetOpen}
           categories={HOME_CATEGORIES}
           selectedId={selectedCategoryId}
-          onSelect={(category) => setSelectedCategoryId(category.id)}
-          onClear={() => setSelectedCategoryId(null)}
+          onSelect={(category) => applyCategoryFilter(category.id)}
+          onClear={() => {
+            setSelectedCategoryId(null);
+            updateCategoryQuery(null);
+          }}
           onClose={() => setCategorySheetOpen(false)}
         />
         <SavedOrganizerSheet
@@ -2810,6 +2921,10 @@ export default function Explore() {
           onNavigate={setViewerIndex}
           onToggleSave={handleToggleSave}
           isSaved={(item) => savedPopclipSet.has(item.id)}
+          showFollow
+          isFollowing={(item) => (item.creatorId ? followingSet.has(item.creatorId) : false)}
+          onFollowChange={handleFollowChange}
+          onFollowError={showToast}
           menuItems={buildViewerMenuItems}
           buildChatHref={(item) =>
             appendReturnTo(`/go/${encodeURIComponent(item.creator.handle)}`, router.asPath)

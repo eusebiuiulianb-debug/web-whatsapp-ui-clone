@@ -156,9 +156,15 @@ export function HomeFilterSheet({
                 disabled={!hasLocation}
                 className="mt-2 w-full disabled:cursor-not-allowed disabled:opacity-60"
               />
-              <p className="mt-2 text-[11px] text-[color:var(--muted)]">
-                Usa una ubicación para filtrar por cercanía.
-              </p>
+              {hasLocation ? (
+                <p className="mt-2 text-[11px] text-[color:var(--muted)]">
+                  Mostraremos resultados dentro de {kmValue} km desde {locationDisplay} (aprox.).
+                </p>
+              ) : (
+                <p className="mt-2 text-[11px] text-[color:var(--muted)]">
+                  Usa una ubicación para filtrar por cercanía.
+                </p>
+              )}
             </div>
 
             <div>

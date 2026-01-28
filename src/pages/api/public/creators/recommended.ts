@@ -66,9 +66,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const kmRaw = parseNumber(getQueryString(req.query.km));
-  const latRaw = parseNumber(getQueryString(req.query.lat));
-  const lngRaw = parseNumber(getQueryString(req.query.lng));
+  const kmRaw = parseNumber(getQueryString(req.query.radiusKm ?? req.query.km));
+  const latRaw = parseNumber(getQueryString(req.query.centerLat ?? req.query.lat));
+  const lngRaw = parseNumber(getQueryString(req.query.centerLng ?? req.query.lng));
   const hasUserLocation = Number.isFinite(latRaw) && Number.isFinite(lngRaw);
   const km = normalizeKm(kmRaw);
   const avail = parseFlag(req.query.avail);
