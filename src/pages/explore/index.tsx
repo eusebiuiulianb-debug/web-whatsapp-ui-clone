@@ -940,7 +940,15 @@ export default function Explore() {
         setSavedPopclipsError("No se pudieron cargar tus PopClips guardados.");
         return;
       }
-      setSavedPopclips(payload.items);
+      const resolvedItems = payload.items as PopClipFeedItem[];
+      setSavedPopclips((prev) => {
+        const fallbackMap = new Map<string, PopClipFeedItem>();
+        feedItems.forEach((item) => fallbackMap.set(item.id, item));
+        prev.forEach((item) => {
+          if (!fallbackMap.has(item.id)) fallbackMap.set(item.id, item);
+        });
+        return resolvedItems.map((item) => mergePopclipMeta(item, fallbackMap.get(item.id)));
+      });
     } catch (_err) {
       setSavedPopclips([]);
       setSavedPopclipsError("No se pudieron cargar tus PopClips guardados.");
@@ -949,7 +957,7 @@ export default function Explore() {
         setSavedPopclipsLoading(false);
       }
     }
-  }, []);
+  }, [feedItems]);
 
   const refreshSavedCollections = useCallback(async (options?: { silent?: boolean }) => {
     if (!options?.silent) {
@@ -2862,6 +2870,41 @@ function mergeUniqueFeedItems(items: PopClipFeedItem[]) {
     merged.push(item);
   });
   return merged;
+}
+
+function mergePopclipMeta(fetched: PopClipFeedItem, fallback?: PopClipFeedItem | null): PopClipFeedItem {
+  if (!fallback) return fetched;
+  const resolveDistance = (value?: number | null) =>
+    Number.isFinite(value ?? NaN) ? (value as number) : null;
+  const fetchedCreator = fetched.creator;
+  const fallbackCreator = fallback.creator;
+  const responseTime =
+    typeof fetchedCreator.responseTime === "string" && fetchedCreator.responseTime.trim()
+      ? fetchedCreator.responseTime
+      : fallbackCreator.responseTime ?? null;
+  const locationLabel =
+    typeof fetchedCreator.locationLabel === "string" && fetchedCreator.locationLabel.trim()
+      ? fetchedCreator.locationLabel
+      : fallbackCreator.locationLabel ?? null;
+  const allowLocation =
+    typeof fetchedCreator.allowLocation === "boolean"
+      ? fetchedCreator.allowLocation
+      : fallbackCreator.allowLocation;
+  const isAvailable =
+    typeof fetchedCreator.isAvailable === "boolean" ? fetchedCreator.isAvailable : fallbackCreator.isAvailable;
+  const resolvedDistance = resolveDistance(fetched.distanceKm) ?? resolveDistance(fallback.distanceKm) ?? null;
+
+  return {
+    ...fetched,
+    distanceKm: resolvedDistance,
+    creator: {
+      ...fetchedCreator,
+      responseTime,
+      locationLabel,
+      allowLocation,
+      isAvailable,
+    },
+  };
 }
 
 function appendReturnTo(url: string, returnTo: string) {

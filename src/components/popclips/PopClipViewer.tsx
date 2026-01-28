@@ -8,7 +8,6 @@ import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { IconGlyph } from "../ui/IconGlyph";
 import { MetaChip } from "../ui/MetaChip";
-import { MiniRating } from "../ui/MiniRating";
 import { VerifiedInlineBadge } from "../ui/VerifiedInlineBadge";
 import { PopClipMediaActions, popClipMediaActionButtonClass } from "./PopClipMediaActions";
 import type { PopClipTileItem } from "./PopClipTile";
@@ -179,16 +178,28 @@ export function PopClipViewer({
     : `${captionText.slice(0, CAPTION_PREVIEW_LIMIT).trimEnd()}…`;
   const resolvedMenuItems = activeItem && menuItems ? menuItems(activeItem) : [];
   const allowLocation = activeItem?.creator?.allowLocation !== false;
+  const rawDistance =
+    activeItem?.distanceKm ??
+    (activeItem as { distance_km?: number | null } | null)?.distance_km ??
+    (activeItem as { meta?: { distanceKm?: number | null; distance_km?: number | null } } | null)?.meta
+      ?.distanceKm ??
+    (activeItem as { meta?: { distanceKm?: number | null; distance_km?: number | null } } | null)?.meta
+      ?.distance_km ??
+    null;
   const distanceLabel =
-    allowLocation && Number.isFinite(activeItem?.distanceKm ?? NaN)
-      ? `~${Math.round(activeItem?.distanceKm as number)} km`
-      : "";
-  const locationLabel = allowLocation ? (activeItem?.creator?.locationLabel || "").trim() : "";
+    allowLocation && Number.isFinite(rawDistance ?? NaN) ? `~${Math.round(rawDistance as number)} km` : "";
+  const rawLocationLabel =
+    activeItem?.creator?.locationLabel ??
+    (activeItem as { locationLabel?: string | null } | null)?.locationLabel ??
+    (activeItem as { meta?: { locationLabel?: string | null } } | null)?.meta?.locationLabel ??
+    "";
+  const locationLabel = allowLocation ? rawLocationLabel.trim() : "";
   const locationChipLabel = locationLabel
     ? `📍 ${locationLabel} (aprox.)${distanceLabel ? ` · ${distanceLabel}` : ""}`
     : "";
-  const ratingValue = activeItem?.creator?.ratingAvg ?? null;
-  const ratingCount = activeItem?.creator?.ratingCount ?? null;
+  const availableLabel = activeItem?.creator?.isAvailable ? "Disponible" : "";
+  const responseLabel = (activeItem?.creator?.responseTime || "").trim();
+  const chipLabels = [availableLabel, responseLabel, locationChipLabel].filter(Boolean);
   const showScrollHint = isDesktop && canScroll && !hasScrolled;
 
   if (!open || !activeItem) return null;
@@ -307,7 +318,7 @@ export function PopClipViewer({
                     setHasScrolled(true);
                   }
                 }}
-                className="relative min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(16px+env(safe-area-inset-bottom)+var(--bottom-nav-h,0px))] pt-4 lg:px-5 lg:pb-5 lg:pt-5 lg:[scrollbar-width:thin] lg:[&::-webkit-scrollbar]:w-1.5 lg:[&::-webkit-scrollbar-thumb]:bg-white/20 lg:[&::-webkit-scrollbar-thumb]:rounded-full lg:[&::-webkit-scrollbar-track]:bg-transparent"
+                className="relative min-h-0 flex-1 overscroll-contain overflow-y-auto px-4 pb-[calc(16px+env(safe-area-inset-bottom)+var(--bottom-nav-h,0px))] pt-4 lg:px-5 lg:pb-5 lg:pt-5 lg:[scrollbar-width:thin] lg:[&::-webkit-scrollbar]:w-1.5 lg:[&::-webkit-scrollbar-thumb]:bg-white/20 lg:[&::-webkit-scrollbar-thumb]:rounded-full lg:[&::-webkit-scrollbar-track]:bg-transparent"
               >
                 <div className="flex flex-col gap-4">
                   <div className="flex flex-col gap-2">
@@ -319,14 +330,13 @@ export function PopClipViewer({
                         <VerifiedInlineBadge collapseAt="lg" className="shrink-0" />
                       ) : null}
                     </div>
-                    <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold text-white/80">
-                      <MiniRating
-                        avg={ratingValue}
-                        count={ratingCount}
-                        variant="chip"
-                      />
-                      {locationChipLabel ? <MetaChip label={locationChipLabel} /> : null}
-                    </div>
+                    {chipLabels.length > 0 ? (
+                      <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold text-white/80">
+                        {chipLabels.map((label, index) => (
+                          <MetaChip key={`${label}-${index}`} label={label} />
+                        ))}
+                      </div>
+                    ) : null}
                     <div className="text-sm text-[color:var(--muted)]">
                       <p className={clsx(!captionExpanded && "line-clamp-3")}>{visibleCaption}</p>
                       {isCaptionLong ? (
