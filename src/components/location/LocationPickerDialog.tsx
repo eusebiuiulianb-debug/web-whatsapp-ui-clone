@@ -45,6 +45,17 @@ const DEFAULT_LOCATION_CENTER = { lat: 40.4168, lng: -3.7038 };
 const DEFAULT_TITLE = "Ubicación aproximada";
 const DEFAULT_OVERLAY = "Elige una ciudad o usa tu ubicación";
 
+function safeInvalidate(map: LeafletMap) {
+  try {
+    const el = map.getContainer?.();
+    if (!el || !el.isConnected) return;
+    if (el.clientWidth === 0 || el.clientHeight === 0) return;
+    map.invalidateSize({ animate: false });
+  } catch {
+    // ignore invalidation errors
+  }
+}
+
 export function LocationPickerDialog({
   open,
   onClose,
@@ -77,13 +88,17 @@ export function LocationPickerDialog({
   const [mapCenter, setMapCenter] = useState(DEFAULT_LOCATION_CENTER);
   const geoRequestRef = useRef(0);
   const mapRef = useRef<LeafletMap | null>(null);
+  const [map, setMap] = useState<LeafletMap | null>(null);
   const invalidateMap = useCallback(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => map.invalidateSize());
+    if (!open) return;
+    const mapInstance = mapRef.current;
+    if (!mapInstance) return;
+    mapInstance.whenReady(() => {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => safeInvalidate(mapInstance));
+      });
     });
-  }, []);
+  }, [open]);
 
   const lat = typeof value.lat === "number" && Number.isFinite(value.lat) ? value.lat : null;
   const lng = typeof value.lng === "number" && Number.isFinite(value.lng) ? value.lng : null;
@@ -116,9 +131,31 @@ export function LocationPickerDialog({
 
   useEffect(() => {
     if (!open) return;
-    const timeout = window.setTimeout(() => invalidateMap(), 120);
-    return () => window.clearTimeout(timeout);
-  }, [hasCoords, invalidateMap, open]);
+    if (!map) return;
+    let timeoutId = 0;
+    let raf1 = 0;
+    let raf2 = 0;
+    let cancelled = false;
+
+    map.whenReady(() => {
+      if (cancelled) return;
+      timeoutId = window.setTimeout(() => {
+        raf1 = window.requestAnimationFrame(() => {
+          raf2 = window.requestAnimationFrame(() => {
+            if (cancelled) return;
+            safeInvalidate(map);
+          });
+        });
+      }, 90);
+    });
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) window.clearTimeout(timeoutId);
+      if (raf1) window.cancelAnimationFrame(raf1);
+      if (raf2) window.cancelAnimationFrame(raf2);
+    };
+  }, [map, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -187,16 +224,14 @@ export function LocationPickerDialog({
   }, [open, onClose]);
 
   useEffect(() => {
-    if (!open) return;
-    const timeout = window.setTimeout(() => {
-      window.dispatchEvent(new Event("resize"));
-      invalidateMap();
-    }, 140);
-    return () => window.clearTimeout(timeout);
-  }, [invalidateMap, open]);
+    if (open) return;
+    mapRef.current = null;
+    setMap(null);
+  }, [open]);
 
   const handleMapReady = (map: LeafletMap) => {
     mapRef.current = map;
+    setMap(map);
     invalidateMap();
   };
 
@@ -459,3 +494,8 @@ export function LocationPickerDialog({
     </div>
   );
 }
+
+// Verification checklist:
+// - [ ] Location dialog opens without Leaflet _leaflet_pos errors
+// - [ ] Closing and reopening does not reuse a stale map instance
+// - [ ] Map renders after open animation with correct size
