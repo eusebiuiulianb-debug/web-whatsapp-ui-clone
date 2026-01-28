@@ -16,6 +16,8 @@ type PopClipFeedItem = {
   durationSec: number | null;
   createdAt: string;
   commentCount?: number;
+  creatorRating?: number | null;
+  creatorReviewCount?: number;
   creator: {
     handle: string;
     displayName: string;
@@ -203,7 +205,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    const sorted = hasUserLocation ? sortByDistance(items) : boostEngagement(items);
+    const itemsWithReviews = await attachCreatorReviews(items);
+    const sorted = hasUserLocation ? sortByDistance(itemsWithReviews) : boostEngagement(itemsWithReviews);
 
     return res.status(200).json({
       items: sorted,
@@ -297,6 +300,35 @@ function mapFeedItems(items: FeedClipRow[], userLocation: { lat: number; lng: nu
         commentCount: clip._count?.comments ?? 0,
       },
       distanceKm: Number.isFinite(distanceKm ?? NaN) ? roundDistance(distanceKm as number) : null,
+    };
+  });
+}
+
+async function attachCreatorReviews(items: PopClipFeedItem[]) {
+  if (items.length === 0) return items;
+  const creatorIds = Array.from(new Set(items.map((item) => item.creatorId).filter(Boolean)));
+  if (creatorIds.length === 0) {
+    return items.map((item) => ({ ...item, creatorRating: null, creatorReviewCount: 0 }));
+  }
+  const rows = await prisma.creatorComment.groupBy({
+    by: ["creatorId"],
+    where: { creatorId: { in: creatorIds }, isPublic: true, status: "APPROVED" },
+    _avg: { rating: true },
+    _count: { _all: true },
+  });
+  const reviewMap = new Map<string, { ratingAvg: number | null; reviewCount: number }>();
+  rows.forEach((row) => {
+    const reviewCount = row._count?._all ?? 0;
+    const avgRaw = typeof row._avg?.rating === "number" ? row._avg.rating : null;
+    const ratingAvg = reviewCount > 0 && avgRaw !== null ? Math.round(avgRaw * 10) / 10 : null;
+    reviewMap.set(row.creatorId, { ratingAvg, reviewCount });
+  });
+  return items.map((item) => {
+    const stats = reviewMap.get(item.creatorId);
+    return {
+      ...item,
+      creatorRating: stats?.ratingAvg ?? null,
+      creatorReviewCount: stats?.reviewCount ?? 0,
     };
   });
 }

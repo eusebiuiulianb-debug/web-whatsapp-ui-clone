@@ -26,6 +26,8 @@ export type PopClipTileItem = {
   previewImageUrl?: string | null;
   savesCount?: number | null;
   commentCount?: number;
+  creatorRating?: number | null;
+  creatorReviewCount?: number | null;
   stats?: {
     likeCount?: number;
     commentCount?: number;
@@ -152,13 +154,19 @@ export const PopClipTile = memo(function PopClipTile({
       ? `≈${Math.round(item.distanceKm as number)} km`
       : "";
   const locationChipLabel = locationLabel ? `📍 ${locationLabel} (aprox.)` : "";
-  const ratingValue = item.creator.ratingAvg ?? null;
-  const ratingCount = item.creator.ratingCount ?? null;
-  const hasRating =
-    typeof ratingValue === "number" &&
-    Number.isFinite(ratingValue) &&
-    typeof ratingCount === "number" &&
-    ratingCount > 0;
+  const ratingValue =
+    typeof item.creatorRating === "number" && Number.isFinite(item.creatorRating)
+      ? item.creatorRating
+      : typeof item.creator.ratingAvg === "number" && Number.isFinite(item.creator.ratingAvg)
+        ? item.creator.ratingAvg
+        : null;
+  const ratingCount =
+    typeof item.creatorReviewCount === "number"
+      ? item.creatorReviewCount
+      : typeof item.creator.ratingCount === "number"
+        ? item.creator.ratingCount
+        : 0;
+  const hasRating = typeof ratingValue === "number" && ratingCount > 0;
   const ratingLabel = hasRating ? `★ ${ratingValue.toFixed(1)} · ${ratingCount} reseñas` : "";
   const chipItems = [availableLabel, responseLabel, distanceLabel, locationChipLabel].filter(Boolean);
   const isDesktopLg = useMediaQuery("(min-width: 1024px)");

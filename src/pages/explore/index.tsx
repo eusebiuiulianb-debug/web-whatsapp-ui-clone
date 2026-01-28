@@ -66,6 +66,8 @@ type PopClipFeedItem = {
   createdAt: string;
   savesCount?: number | null;
   commentCount?: number;
+  creatorRating?: number | null;
+  creatorReviewCount?: number | null;
   creator: {
     handle: string;
     displayName: string;
@@ -2876,6 +2878,10 @@ function mergePopclipMeta(fetched: PopClipFeedItem, fallback?: PopClipFeedItem |
   if (!fallback) return fetched;
   const resolveDistance = (value?: number | null) =>
     Number.isFinite(value ?? NaN) ? (value as number) : null;
+  const resolveRating = (value?: number | null) =>
+    typeof value === "number" && Number.isFinite(value) ? value : null;
+  const resolveReviewCount = (value?: number | null) =>
+    typeof value === "number" && Number.isFinite(value) ? value : null;
   const fetchedCreator = fetched.creator;
   const fallbackCreator = fallback.creator;
   const responseTime =
@@ -2893,10 +2899,16 @@ function mergePopclipMeta(fetched: PopClipFeedItem, fallback?: PopClipFeedItem |
   const isAvailable =
     typeof fetchedCreator.isAvailable === "boolean" ? fetchedCreator.isAvailable : fallbackCreator.isAvailable;
   const resolvedDistance = resolveDistance(fetched.distanceKm) ?? resolveDistance(fallback.distanceKm) ?? null;
+  const creatorRating =
+    resolveRating(fetched.creatorRating) ?? resolveRating(fallback.creatorRating);
+  const creatorReviewCount =
+    resolveReviewCount(fetched.creatorReviewCount) ?? resolveReviewCount(fallback.creatorReviewCount) ?? 0;
 
   return {
     ...fetched,
     distanceKm: resolvedDistance,
+    creatorRating,
+    creatorReviewCount,
     creator: {
       ...fetchedCreator,
       responseTime,
