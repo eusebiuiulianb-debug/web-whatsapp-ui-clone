@@ -4,6 +4,7 @@ import clsx from "clsx";
 import { MessageCircle, Sparkles } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/router";
 import { memo, useEffect, useRef, useState, type MouseEvent } from "react";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { Skeleton } from "../ui/Skeleton";
@@ -119,6 +120,7 @@ export const PopClipTile = memo(function PopClipTile({
   const isProfileCompact = variant === "profileCompact";
   const isProfileMinimal = variant === "profileMinimal";
   const showHeader = !isProfileCompact && !isProfileMinimal;
+  const router = useRouter();
   const [thumbFailed, setThumbFailed] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
@@ -274,6 +276,24 @@ export const PopClipTile = memo(function PopClipTile({
   useEffect(() => {
     if (hiddenCount === 0 && chipsOpen) setChipsOpen(false);
   }, [chipsOpen, hiddenCount]);
+
+  useEffect(() => {
+    if (!chipsOpen) return;
+    if (typeof window === "undefined") return;
+    const handleAnyScroll = () => setChipsOpen(false);
+    const listenerOptions: AddEventListenerOptions = { passive: true, capture: true };
+    window.addEventListener("scroll", handleAnyScroll, listenerOptions);
+    window.addEventListener("wheel", handleAnyScroll, listenerOptions);
+    window.addEventListener("touchmove", handleAnyScroll, listenerOptions);
+    const handleRouteChange = () => setChipsOpen(false);
+    router.events?.on("routeChangeStart", handleRouteChange);
+    return () => {
+      window.removeEventListener("scroll", handleAnyScroll, listenerOptions);
+      window.removeEventListener("wheel", handleAnyScroll, listenerOptions);
+      window.removeEventListener("touchmove", handleAnyScroll, listenerOptions);
+      router.events?.off("routeChangeStart", handleRouteChange);
+    };
+  }, [chipsOpen, router.events]);
 
   const handleToggleFollow = async (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
