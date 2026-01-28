@@ -78,6 +78,7 @@ type Props = {
   onCopyLink?: (item: PopClipTileItem) => void;
   onShare?: (item: PopClipTileItem) => void;
   onReport?: (item: PopClipTileItem) => void;
+  showServices?: boolean;
 };
 
 export const PopClipTile = memo(function PopClipTile({
@@ -96,6 +97,7 @@ export const PopClipTile = memo(function PopClipTile({
   onCopyLink,
   onShare,
   onReport,
+  showServices = false,
 }: Props) {
   const router = useRouter();
   const isProfileCompact = variant === "profileCompact";
@@ -130,6 +132,12 @@ export const PopClipTile = memo(function PopClipTile({
   const hasDistance = Number.isFinite(item.distanceKm ?? NaN);
   const formattedDistance = hasDistance ? formatDistanceKm(item.distanceKm as number) : "";
   const showActivateLocation = showLocationHint && !hasDistance && !hasLocationCenter;
+  const serviceTags = normalizeServiceTags(item.creator.offerTags);
+  const visibleServiceTags = serviceTags.slice(0, 2);
+  const hiddenServiceCount = Math.max(0, serviceTags.length - visibleServiceTags.length);
+  const showServiceRow = showServices && variant === "explore" && serviceTags.length > 0;
+  const serviceChipClassName =
+    "inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2.5 py-0.5 text-[10px] font-semibold text-[color:var(--text)]";
   const creatorInitial = item.creator.displayName?.trim()?.[0]?.toUpperCase() || "C";
   const quickActions: ContextMenuItem[] = [];
   const canOrganize = Boolean(isSaved && onOrganize && organizerItemId);
@@ -299,6 +307,40 @@ export const PopClipTile = memo(function PopClipTile({
                   {hasDistance ? <span> · a {formattedDistance} de ti</span> : null}
                 </div>
               )
+            ) : null}
+            {showServiceRow ? (
+              <div
+                aria-hidden={!isCaptionOpen}
+                className={clsx(
+                  "flex items-center gap-2 text-[10px] font-semibold text-[color:var(--muted)] transition-opacity",
+                  isCaptionOpen
+                    ? "opacity-100"
+                    : "opacity-0 pointer-events-none md:group-hover:opacity-100 md:group-hover:pointer-events-auto"
+                )}
+              >
+                <span className="shrink-0">Servicios</span>
+                <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto whitespace-nowrap no-scrollbar">
+                  {visibleServiceTags.map((tag, index) => (
+                    <span
+                      key={`${tag}-${index}`}
+                      className={serviceChipClassName}
+                      aria-label={`Servicio: ${tag}`}
+                      title={tag}
+                    >
+                      <span className="max-w-[100px] truncate">{tag}</span>
+                    </span>
+                  ))}
+                  {hiddenServiceCount > 0 ? (
+                    <span
+                      className={serviceChipClassName}
+                      aria-label={`${hiddenServiceCount} servicios más`}
+                      title={`${hiddenServiceCount} servicios más`}
+                    >
+                      +{hiddenServiceCount}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
             ) : null}
           </div>
         </div>
@@ -536,3 +578,10 @@ export const PopClipTile = memo(function PopClipTile({
     </div>
   );
 });
+
+function normalizeServiceTags(value?: string[] | null): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
+    .filter((tag) => Boolean(tag));
+}

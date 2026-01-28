@@ -238,6 +238,11 @@ export function PopClipViewer({
   const availableLabel = activeItem?.creator?.isAvailable ? "Disponible" : "";
   const responseLabel = (activeItem?.creator?.responseTime || "").trim();
   const chipLabels = [availableLabel, responseLabel, locationChipLabel].filter(Boolean);
+  const serviceTags = normalizeServiceTags(activeItem?.creator?.offerTags);
+  const visibleServiceTags = serviceTags.slice(0, 3);
+  const hiddenServiceCount = Math.max(0, serviceTags.length - visibleServiceTags.length);
+  const serviceChipClassName =
+    "inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2.5 py-0.5 text-[10px] font-semibold text-[color:var(--text)]";
   const showScrollHint = isDesktop && canScroll && !hasScrolled;
   const showVideoOverlay = isVideo && (isPaused || isEnded);
 
@@ -551,6 +556,32 @@ export function PopClipViewer({
                         ))}
                       </div>
                     ) : null}
+                    {serviceTags.length > 0 ? (
+                      <div className="flex items-center gap-2 text-[10px] font-semibold text-[color:var(--muted)]">
+                        <span className="shrink-0">Servicios</span>
+                        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto whitespace-nowrap no-scrollbar">
+                          {visibleServiceTags.map((tag, index) => (
+                            <span
+                              key={`${tag}-${index}`}
+                              className={serviceChipClassName}
+                              aria-label={`Servicio: ${tag}`}
+                              title={tag}
+                            >
+                              <span className="max-w-[120px] truncate">{tag}</span>
+                            </span>
+                          ))}
+                          {hiddenServiceCount > 0 ? (
+                            <span
+                              className={serviceChipClassName}
+                              aria-label={`${hiddenServiceCount} servicios más`}
+                              title={`${hiddenServiceCount} servicios más`}
+                            >
+                              +{hiddenServiceCount}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="text-sm text-[color:var(--muted)]">
                       <p className={clsx(!captionExpanded && "line-clamp-3")}>{visibleCaption}</p>
                       {isCaptionLong ? (
@@ -631,4 +662,11 @@ function normalizeMediaSrc(src?: string | null): string {
   if (!trimmed) return "";
   if (trimmed.startsWith("/") || /^https?:\/\//i.test(trimmed)) return trimmed;
   return `/${trimmed.replace(/^\/+/, "")}`;
+}
+
+function normalizeServiceTags(value?: string[] | null): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
+    .filter((tag) => Boolean(tag));
 }
