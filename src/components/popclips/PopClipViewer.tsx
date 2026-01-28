@@ -52,6 +52,7 @@ export function PopClipViewer({
   const [canScroll, setCanScroll] = useState(false);
   const [hasScrolled, setHasScrolled] = useState(false);
   const contentScrollRef = useRef<HTMLDivElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const isDesktop = useMediaQuery("(min-width: 768px) and (pointer: fine)");
 
   useEffect(() => {
@@ -104,6 +105,7 @@ export function PopClipViewer({
       document.body.style.paddingRight = previousPadding;
     };
   }, [open]);
+
 
   const canNavigate = items.length > 1;
 
@@ -170,6 +172,12 @@ export function PopClipViewer({
 
   const previewSrc =
     activeItem?.thumbnailUrl || activeItem?.posterUrl || activeItem?.previewImageUrl || "";
+  const rawVideoUrl = (activeItem?.videoUrl || "").trim();
+  const isVideo =
+    activeItem?.mediaType === "VIDEO" ||
+    activeItem?.assetType === "video" ||
+    Boolean(rawVideoUrl);
+  const videoSrc = normalizeMediaSrc(rawVideoUrl);
   const showImage = Boolean(previewSrc);
   const captionText = (activeItem?.caption ?? "").trim() || (activeItem?.title ?? "PopClip");
   const isCaptionLong = captionText.length > CAPTION_PREVIEW_LIMIT;
@@ -201,6 +209,42 @@ export function PopClipViewer({
   const responseLabel = (activeItem?.creator?.responseTime || "").trim();
   const chipLabels = [availableLabel, responseLabel, locationChipLabel].filter(Boolean);
   const showScrollHint = isDesktop && canScroll && !hasScrolled;
+
+  useEffect(() => {
+    if (!open || !isVideo || !videoSrc) return;
+    const videoEl = videoRef.current;
+    if (!videoEl) return;
+    videoEl.muted = true;
+    const playPromise = videoEl.play();
+    if (playPromise && typeof playPromise.catch === "function") {
+      playPromise.catch(() => null);
+    }
+    return () => {
+      videoEl.pause();
+      videoEl.currentTime = 0;
+    };
+  }, [open, activeItem?.id, isVideo, videoSrc]);
+
+  useEffect(() => {
+    if (open) return;
+    const videoEl = videoRef.current;
+    if (!videoEl) return;
+    videoEl.pause();
+    videoEl.currentTime = 0;
+  }, [open]);
+
+  const handleVideoToggle = () => {
+    const videoEl = videoRef.current;
+    if (!videoEl) return;
+    if (videoEl.paused) {
+      const playPromise = videoEl.play();
+      if (playPromise && typeof playPromise.catch === "function") {
+        playPromise.catch(() => null);
+      }
+    } else {
+      videoEl.pause();
+    }
+  };
 
   if (!open || !activeItem) return null;
 
@@ -241,7 +285,21 @@ export function PopClipViewer({
             <div className="flex h-full min-h-0 flex-col">
               <div className="flex-shrink-0 px-4 pt-5 lg:px-5 lg:pt-5">
                 <div className="relative aspect-[9/16] w-full max-h-[70dvh] overflow-hidden rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)]">
-                  {showImage ? (
+                  {isVideo && videoSrc ? (
+                    <video
+                      ref={videoRef}
+                      src={videoSrc}
+                      poster={showImage ? normalizeImageSrc(previewSrc) : undefined}
+                      muted
+                      playsInline
+                      loop
+                      autoPlay
+                      preload="metadata"
+                      controls={false}
+                      onClick={handleVideoToggle}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : showImage ? (
                     <Image
                       src={normalizeImageSrc(previewSrc)}
                       alt={activeItem.title?.trim() || "PopClip"}
@@ -410,4 +468,11 @@ function useMediaQuery(query: string) {
   }, [query]);
 
   return matches;
+}
+
+function normalizeMediaSrc(src?: string | null): string {
+  const trimmed = (src || "").trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("/") || /^https?:\/\//i.test(trimmed)) return trimmed;
+  return `/${trimmed.replace(/^\/+/, "")}`;
 }

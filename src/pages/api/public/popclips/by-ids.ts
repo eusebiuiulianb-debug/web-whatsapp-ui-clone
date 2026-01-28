@@ -13,6 +13,7 @@ type PopClipFeedItem = {
   caption?: string | null;
   thumbnailUrl: string | null;
   posterUrl?: string | null;
+  videoUrl?: string | null;
   durationSec: number | null;
   createdAt: string;
   commentCount?: number;
@@ -90,6 +91,7 @@ const CLIP_SELECT = {
       comments: true,
     },
   },
+  videoUrl: true,
 } as const;
 
 type ClipRow = Prisma.PopClipGetPayload<{ select: typeof CLIP_SELECT }>;
@@ -210,6 +212,7 @@ function mapItems(items: ClipRow[]): PopClipFeedItem[] {
       caption: clip.caption ?? clip.title ?? null,
       thumbnailUrl: clip.posterUrl ?? null,
       posterUrl: clip.posterUrl ?? null,
+      videoUrl: clip.videoUrl ?? null,
       durationSec: clip.durationSec ?? null,
       createdAt: clip.createdAt.toISOString(),
       savesCount: clip.savesCount ?? 0,

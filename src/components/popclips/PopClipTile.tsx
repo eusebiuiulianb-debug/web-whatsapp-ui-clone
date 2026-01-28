@@ -1,7 +1,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Popover from "@radix-ui/react-popover";
 import clsx from "clsx";
-import { MessageCircle, Sparkles, Star } from "lucide-react";
+import { MessageCircle, Play, Sparkles, Star } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/router";
@@ -25,6 +25,9 @@ export type PopClipTileItem = {
   thumbnailUrl?: string | null;
   posterUrl?: string | null;
   previewImageUrl?: string | null;
+  videoUrl?: string | null;
+  mediaType?: string | null;
+  assetType?: string | null;
   savesCount?: number | null;
   commentCount?: number;
   creatorRating?: number | null;
@@ -148,6 +151,9 @@ export const PopClipTile = memo(function PopClipTile({
   const captionPreview = isCaptionLong ? caption.slice(0, CAPTION_PREVIEW_LIMIT).trimEnd() : caption;
   const captionOverlayText = isCaptionLong ? `${captionPreview}…` : captionPreview;
   const showCaption = hasCaption;
+  const rawVideoUrl = (item.videoUrl || "").trim();
+  const isVideo =
+    item.mediaType === "VIDEO" || item.assetType === "video" || Boolean(rawVideoUrl);
   const allowLocation = item.creator.allowLocation !== false;
   const availableLabel = item.creator.isAvailable ? "Disponible" : "";
   const responseLabel = (item.creator.responseTime || "").trim();
@@ -586,6 +592,11 @@ export const PopClipTile = memo(function PopClipTile({
             </div>
           )}
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 via-black/10 to-transparent opacity-80 transition duration-200 md:opacity-70 md:group-hover:opacity-90" />
+          {isVideo ? (
+            <div className="pointer-events-none absolute bottom-3 right-3 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/60 text-white/90 shadow-sm">
+              <Play className="ml-0.5 h-4 w-4" aria-hidden="true" />
+            </div>
+          ) : null}
           {isProfileMinimal ? (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/70 via-black/20 to-transparent p-2">
               <p className="text-[11px] font-semibold text-white/90 line-clamp-1" title={title}>

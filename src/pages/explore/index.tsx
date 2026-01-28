@@ -62,6 +62,9 @@ type PopClipFeedItem = {
   thumbnailUrl?: string | null;
   posterUrl?: string | null;
   previewImageUrl?: string | null;
+  videoUrl?: string | null;
+  mediaType?: string | null;
+  assetType?: string | null;
   durationSec?: number | null;
   createdAt: string;
   savesCount?: number | null;
