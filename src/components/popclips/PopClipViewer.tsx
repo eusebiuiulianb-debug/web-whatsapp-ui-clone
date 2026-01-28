@@ -3,10 +3,11 @@ import clsx from "clsx";
 import { ChevronDown, ChevronUp, MessageCircle, Play, RotateCcw, Sparkles, X } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/router";
-import { useCallback, useEffect, useRef, useState, type TouchEvent, type WheelEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type TouchEvent, type WheelEvent } from "react";
 import { emitFollowChange, setFollowSnapshot } from "../../lib/followEvents";
 import { useFollowState } from "../../lib/useFollowState";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
+import { formatDistanceKm } from "../../utils/formatDistanceKm";
 import { usePopClipFeedContext } from "./PopClipFeedContext";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { FollowButtonLabel } from "../follow/FollowButtonLabel";
@@ -32,6 +33,10 @@ type Props = {
   onNavigate: (nextIndex: number) => void;
   onToggleSave?: (item: PopClipTileItem) => void;
   isSaved?: (item: PopClipTileItem) => boolean;
+  hasLocationCenter?: boolean;
+  hasHydrated?: boolean;
+  locationActive?: boolean;
+  onRequestLocation?: () => void;
   showFollow?: boolean;
   isFollowing?: (item: PopClipTileItem) => boolean;
   onFollowChange?: (creatorId: string, isFollowing: boolean) => void;
@@ -49,6 +54,10 @@ export function PopClipViewer({
   onNavigate,
   onToggleSave,
   isSaved,
+  hasLocationCenter = false,
+  hasHydrated = true,
+  locationActive,
+  onRequestLocation,
   showFollow = false,
   isFollowing,
   onFollowChange,
@@ -74,6 +83,12 @@ export function PopClipViewer({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const isDesktop = useMediaQuery("(min-width: 768px) and (pointer: fine)");
   const feedContext = usePopClipFeedContext();
+  const resolvedHasHydrated = feedContext?.hasHydrated ?? hasHydrated;
+  const resolvedLocationActive = resolvedHasHydrated
+    ? feedContext?.locationActive ?? locationActive ?? hasLocationCenter
+    : false;
+  const requestLocation = feedContext?.onRequestLocation ?? onRequestLocation;
+  const canRequestLocation = typeof requestLocation === "function";
 
   useEffect(() => {
     setCaptionExpanded(false);
@@ -278,20 +293,57 @@ export function PopClipViewer({
     (activeItem as { meta?: { distanceKm?: number | null; distance_km?: number | null } } | null)?.meta
       ?.distance_km ??
     null;
-  const distanceLabel =
-    allowLocation && Number.isFinite(rawDistance ?? NaN) ? `~${Math.round(rawDistance as number)} km` : "";
   const rawLocationLabel =
     activeItem?.creator?.locationLabel ??
     (activeItem as { locationLabel?: string | null } | null)?.locationLabel ??
     (activeItem as { meta?: { locationLabel?: string | null } } | null)?.meta?.locationLabel ??
     "";
   const locationLabel = allowLocation ? rawLocationLabel.trim() : "";
-  const locationChipLabel = locationLabel
-    ? `📍 ${locationLabel} (aprox.)${distanceLabel ? ` · ${distanceLabel}` : ""}`
-    : "";
+  const hasDistance = Number.isFinite(rawDistance ?? NaN);
+  const showDistancePlaceholder =
+    allowLocation && locationLabel && !hasDistance && (resolvedLocationActive || !resolvedHasHydrated);
+  const distanceLabel =
+    allowLocation && hasDistance ? formatDistanceKm(rawDistance as number) : showDistancePlaceholder ? "… km" : "";
+  const locationChipLabel = locationLabel ? (
+    <span className="inline-flex items-center gap-1">
+      <span>📍 {locationLabel} (aprox.)</span>
+      {distanceLabel ? (
+        <span
+          className={clsx(
+            "transition-opacity duration-200",
+            hasDistance ? "opacity-100" : "opacity-60"
+          )}
+        >
+          · {distanceLabel}
+        </span>
+      ) : null}
+    </span>
+  ) : null;
+  const showActivateLocation = allowLocation && locationLabel && resolvedHasHydrated && !resolvedLocationActive && canRequestLocation;
   const availableLabel = activeItem?.creator?.isAvailable ? "Disponible" : "";
   const responseLabel = (activeItem?.creator?.responseTime || "").trim();
-  const chipLabels = [availableLabel, responseLabel, locationChipLabel].filter(Boolean);
+  const chipEntries: Array<{ key: string; label?: ReactNode; node?: ReactNode }> = [
+    ...(availableLabel ? [{ key: "available", label: availableLabel }] : []),
+    ...(responseLabel ? [{ key: "response", label: responseLabel }] : []),
+    ...(locationChipLabel ? [{ key: "location", label: locationChipLabel }] : []),
+    ...(showActivateLocation
+      ? [
+          {
+            key: "activate-location",
+            node: (
+              <button
+                type="button"
+                onClick={() => requestLocation?.()}
+                aria-label="Activa ubicación"
+                className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/90 hover:bg-white/15"
+              >
+                Activa ubicación
+              </button>
+            ),
+          },
+        ]
+      : []),
+  ];
   const serviceTags = normalizeServiceTags(activeItem?.creator?.offerTags);
   const visibleServiceTags = serviceTags.slice(0, 3);
   const hiddenServiceCount = Math.max(0, serviceTags.length - visibleServiceTags.length);
@@ -603,11 +655,15 @@ export function PopClipViewer({
                         </button>
                       ) : null}
                     </div>
-                    {chipLabels.length > 0 ? (
+                    {chipEntries.length > 0 ? (
                       <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold text-white/80">
-                        {chipLabels.map((label, index) => (
-                          <MetaChip key={`${label}-${index}`} label={label} />
-                        ))}
+                        {chipEntries.map((entry) =>
+                          entry.node ? (
+                            <span key={entry.key}>{entry.node}</span>
+                          ) : (
+                            <MetaChip key={entry.key} label={entry.label ?? ""} />
+                          )
+                        )}
                       </div>
                     ) : null}
                     {serviceTags.length > 0 ? (

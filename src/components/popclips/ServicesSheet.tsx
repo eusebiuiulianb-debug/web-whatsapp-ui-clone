@@ -30,7 +30,7 @@ export function ServicesSheet({ open, onOpenChange, tags, title = "Servicios" }:
         <Dialog.Overlay className="fixed inset-0 z-[70] bg-black/40" />
         <Dialog.Content
           aria-label={title}
-          className="fixed inset-x-0 bottom-0 z-[70] max-h-[70vh] w-full overflow-y-auto overscroll-contain rounded-t-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-2xl sm:inset-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:max-h-[60vh] sm:w-[min(92vw,420px)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl"
+          className="fixed inset-x-0 bottom-0 z-[70] max-h-[70vh] w-full overflow-y-auto overscroll-contain rounded-t-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-2xl md:inset-y-0 md:right-0 md:left-auto md:top-0 md:bottom-0 md:h-full md:max-h-none md:w-[min(420px,92vw)] md:rounded-none md:rounded-l-2xl"
         >
           <div className="flex items-center justify-between border-b border-[color:var(--surface-border)] px-4 py-3">
             <Dialog.Title className="text-sm font-semibold text-[color:var(--text)]">{title}</Dialog.Title>

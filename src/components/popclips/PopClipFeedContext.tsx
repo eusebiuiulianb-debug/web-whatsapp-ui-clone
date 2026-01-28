@@ -3,9 +3,15 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 type PopClipFeedContextValue = {
   ids: string[];
   currentIndex: number;
+  locationActive: boolean;
+  hasHydrated: boolean;
+  onRequestLocation?: () => void;
   setIds: (ids: string[]) => void;
   setFeed: (ids: string[], currentIndex: number) => void;
   setCurrentIndex: (currentIndex: number) => void;
+  setLocationActive: (active: boolean) => void;
+  setHasHydrated: (value: boolean) => void;
+  setOnRequestLocation: (handler?: () => void) => void;
   clear: () => void;
 };
 
@@ -27,6 +33,9 @@ const normalizeIds = (ids: string[]) => {
 export function PopClipFeedProvider({ children }: { children: ReactNode }) {
   const [ids, setIds] = useState<string[]>([]);
   const [currentIndex, setCurrentIndexState] = useState(-1);
+  const [locationActive, setLocationActiveState] = useState(false);
+  const [hasHydrated, setHasHydratedState] = useState(false);
+  const [onRequestLocation, setOnRequestLocationState] = useState<(() => void) | undefined>(undefined);
 
   const setIdsOnly = useCallback((nextIds: string[]) => {
     const normalized = normalizeIds(Array.isArray(nextIds) ? nextIds : []);
@@ -61,16 +70,47 @@ export function PopClipFeedProvider({ children }: { children: ReactNode }) {
     setCurrentIndexState(-1);
   }, []);
 
+  const setLocationActive = useCallback((active: boolean) => {
+    setLocationActiveState(Boolean(active));
+  }, []);
+
+  const setHasHydrated = useCallback((value: boolean) => {
+    setHasHydratedState(Boolean(value));
+  }, []);
+
+  const setOnRequestLocation = useCallback((handler?: () => void) => {
+    setOnRequestLocationState(typeof handler === "function" ? handler : undefined);
+  }, []);
+
   const value = useMemo(
     () => ({
       ids,
       currentIndex,
+      locationActive,
+      hasHydrated,
+      onRequestLocation,
       setIds: setIdsOnly,
       setFeed,
       setCurrentIndex,
+      setLocationActive,
+      setHasHydrated,
+      setOnRequestLocation,
       clear,
     }),
-    [ids, currentIndex, setIdsOnly, setFeed, setCurrentIndex, clear]
+    [
+      ids,
+      currentIndex,
+      locationActive,
+      hasHydrated,
+      onRequestLocation,
+      setIdsOnly,
+      setFeed,
+      setCurrentIndex,
+      setLocationActive,
+      setHasHydrated,
+      setOnRequestLocation,
+      clear,
+    ]
   );
 
   return <PopClipFeedContext.Provider value={value}>{children}</PopClipFeedContext.Provider>;

@@ -2,7 +2,7 @@ import clsx from "clsx";
 import type { ReactNode } from "react";
 
 type MetaChipProps = {
-  label: string;
+  label: ReactNode;
   icon?: ReactNode;
   className?: string;
   ariaLabel?: string;

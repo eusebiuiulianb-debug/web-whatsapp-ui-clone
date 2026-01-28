@@ -262,6 +262,13 @@ export default function Explore() {
   );
 }
 
+// Verification checklist:
+// - [ ] Con ubicacion guardada, no aparece "Activa ubicacion" en tiles; aparece distancia o placeholder.
+// - [ ] Sin ubicacion, "Activa ubicacion" abre el sheet de filtros en Ubicacion.
+// - [ ] Banner "Cerca de ..." no dispara hydration mismatch (placeholder antes de hidratar).
+// - [ ] PopClipViewer muestra distancia coherente con el tile.
+// - [ ] ServicesSheet abre abajo en mobile y a la derecha en desktop.
+
 function ExploreContent() {
   const router = useRouter();
   const feedContext = usePopClipFeedContext();
@@ -335,6 +342,11 @@ function ExploreContent() {
   const [recommendedCreators, setRecommendedCreators] = useState<RecommendedCreator[]>([]);
   const [creatorsLoading, setCreatorsLoading] = useState(false);
   const [creatorsError, setCreatorsError] = useState("");
+  const [hasHydrated, setHasHydrated] = useState(false);
+
+  useEffect(() => {
+    setHasHydrated(true);
+  }, []);
 
   useEffect(() => {
     if (viewerOpen) return;
@@ -347,18 +359,29 @@ function ExploreContent() {
     feedContext?.clear();
   }, [feedContext, viewerOpen]);
 
-  const filters = useMemo(
+  const filterQueryValues = useMemo(
     () =>
-      parseHomeFilters({
-        km: router.query.km,
-        lat: router.query.lat,
-        lng: router.query.lng,
-        loc: router.query.loc,
-        avail: router.query.avail,
-        r24: router.query.r24,
-        vip: router.query.vip,
-      }),
+      hasHydrated
+        ? {
+            km: router.query.km,
+            lat: router.query.lat,
+            lng: router.query.lng,
+            loc: router.query.loc,
+            avail: router.query.avail,
+            r24: router.query.r24,
+            vip: router.query.vip,
+          }
+        : {
+            km: undefined,
+            lat: undefined,
+            lng: undefined,
+            loc: undefined,
+            avail: undefined,
+            r24: undefined,
+            vip: undefined,
+          },
     [
+      hasHydrated,
       router.query.avail,
       router.query.km,
       router.query.lat,
@@ -367,6 +390,10 @@ function ExploreContent() {
       router.query.r24,
       router.query.vip,
     ]
+  );
+  const filters = useMemo(
+    () => parseHomeFilters(filterQueryValues),
+    [filterQueryValues]
   );
   const activeFilterCount = useMemo(() => countActiveFilters(filters), [filters]);
   const filterQueryString = useMemo(() => {
@@ -411,6 +438,7 @@ function ExploreContent() {
   const centerLat = typeof filters.lat === "number" && Number.isFinite(filters.lat) ? filters.lat : null;
   const centerLng = typeof filters.lng === "number" && Number.isFinite(filters.lng) ? filters.lng : null;
   const hasLocation = centerLat !== null && centerLng !== null;
+  const locationActive = hasHydrated && hasLocation;
   const radiusKm = useMemo(() => {
     const raw = Number.isFinite(filters.km ?? NaN) ? (filters.km as number) : DEFAULT_FILTER_KM;
     const rounded = Math.round(raw);
@@ -418,10 +446,11 @@ function ExploreContent() {
     if (rounded > MAX_FILTER_KM) return MAX_FILTER_KM;
     return rounded;
   }, [filters.km]);
+  const hasLocationLabel = hasHydrated && Boolean((filters.loc || "").trim());
   const locationCenterLabel = useMemo(() => {
     if (!hasLocation) return "";
     const label = (filters.loc || "").trim();
-    return label || "Mi ubicación";
+    return label || "tu ubicación…";
   }, [filters.loc, hasLocation]);
   const feedQueryString = useMemo(() => {
     const params = new URLSearchParams(filterQueryString);
@@ -580,6 +609,24 @@ function ExploreContent() {
     setOpenLocationPicker(true);
     setFilterSheetOpen(true);
   }, []);
+
+  useEffect(() => {
+    if (!feedContext) return;
+    feedContext.setHasHydrated(hasHydrated);
+  }, [feedContext, hasHydrated]);
+
+  useEffect(() => {
+    if (!feedContext) return;
+    feedContext.setLocationActive(locationActive);
+  }, [feedContext, locationActive]);
+
+  useEffect(() => {
+    if (!feedContext) return;
+    feedContext.setOnRequestLocation(openLocationFilters);
+    return () => {
+      feedContext.setOnRequestLocation(undefined);
+    };
+  }, [feedContext, openLocationFilters]);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -1678,7 +1725,7 @@ function ExploreContent() {
   const savedLabel = showSavedCount ? `Guardados · ${savedCount}` : "Guardados";
   const followingLabel =
     typeof followingTotal === "number" ? `Siguiendo (${followingTotal})` : "Siguiendo";
-  const showLocationBanner = hasLocation && !savedOnly;
+  const showLocationBanner = (hasHydrated ? hasLocation : true) && !savedOnly;
   const showCreatorsEmpty =
     !creatorsLoading && !creatorsError && filteredCreators.length === 0;
 
@@ -2310,7 +2357,8 @@ function ExploreContent() {
             {showLocationBanner ? (
               <div className="mb-4 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 py-3 text-[color:var(--text)]">
                 <p className="text-xs font-semibold">
-                  Cerca de {locationCenterLabel} (aprox.) · Radio {radiusKm} km
+                  Cerca de {hasHydrated ? locationCenterLabel : "tu ubicación…"}
+                  {hasHydrated && hasLocationLabel ? " (aprox.)" : ""} · Radio {radiusKm} km
                 </p>
                 <p className="mt-1 text-[11px] text-[color:var(--muted)]">
                   Distancias aproximadas por privacidad.
@@ -2470,6 +2518,7 @@ function ExploreContent() {
                                     onFollowChange={handleFollowChange}
                                     onFollowError={showToast}
                                     isSaved={savedPopclipSet.has(item.id)}
+                                    hasHydrated={hasHydrated}
                                     onToggleSave={handleToggleSave}
                                     onOrganize={openOrganizer}
                                     organizerItemId={organizerItemId}
@@ -2732,6 +2781,7 @@ function ExploreContent() {
                         onFollowChange={handleFollowChange}
                         onFollowError={showToast}
                         isSaved={savedPopclipSet.has(item.id)}
+                        hasHydrated={hasHydrated}
                         onToggleSave={handleToggleSave}
                         onOrganize={openOrganizer}
                         organizerItemId={organizerItemId}
@@ -2956,6 +3006,8 @@ function ExploreContent() {
           onNavigate={handleViewerNavigate}
           onToggleSave={handleToggleSave}
           isSaved={(item) => savedPopclipSet.has(item.id)}
+          hasLocationCenter={hasLocation}
+          hasHydrated={hasHydrated}
           showFollow
           isFollowing={(item) => (item.creatorId ? followingSet.has(item.creatorId) : false)}
           onFollowChange={handleFollowChange}

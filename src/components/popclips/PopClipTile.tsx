@@ -12,6 +12,7 @@ import { formatDistanceKm } from "../../utils/formatDistanceKm";
 import { VerifiedInlineBadge } from "../ui/VerifiedInlineBadge";
 import { PopClipMediaActions, popClipMediaActionButtonClass } from "./PopClipMediaActions";
 import { ServicesSheet } from "./ServicesSheet";
+import { usePopClipFeedContext } from "./PopClipFeedContext";
 
 export type PopClipTileItem = {
   id: string;
@@ -80,6 +81,7 @@ type Props = {
   onShare?: (item: PopClipTileItem) => void;
   onReport?: (item: PopClipTileItem) => void;
   showServices?: boolean;
+  hasHydrated?: boolean;
 };
 
 export const PopClipTile = memo(function PopClipTile({
@@ -99,6 +101,7 @@ export const PopClipTile = memo(function PopClipTile({
   onShare,
   onReport,
   showServices = false,
+  hasHydrated = true,
 }: Props) {
   const router = useRouter();
   const isProfileCompact = variant === "profileCompact";
@@ -109,6 +112,7 @@ export const PopClipTile = memo(function PopClipTile({
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [isCaptionOpen, setIsCaptionOpen] = useState(false);
   const [servicesOpen, setServicesOpen] = useState(false);
+  const feedContext = usePopClipFeedContext();
   const mediaContainerRef = useRef<HTMLDivElement | null>(null);
   const captionPanelRef = useRef<HTMLDivElement | null>(null);
   const captionTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -133,7 +137,15 @@ export const PopClipTile = memo(function PopClipTile({
   const showLocationHint = variant === "explore" && Boolean(creatorLocationLabel);
   const hasDistance = Number.isFinite(item.distanceKm ?? NaN);
   const formattedDistance = hasDistance ? formatDistanceKm(item.distanceKm as number) : "";
-  const showActivateLocation = showLocationHint && !hasDistance && !hasLocationCenter;
+  const resolvedHasHydrated = feedContext?.hasHydrated ?? hasHydrated;
+  const resolvedLocationActive = resolvedHasHydrated
+    ? feedContext?.locationActive ?? hasLocationCenter
+    : false;
+  const requestLocation = feedContext?.onRequestLocation ?? onRequestLocation;
+  const canRequestLocation = typeof requestLocation === "function";
+  const showActivateLocation = showLocationHint && resolvedHasHydrated && !resolvedLocationActive && canRequestLocation;
+  const showDistancePlaceholder = !hasDistance && showLocationHint && !showActivateLocation;
+  const distanceLabel = hasDistance ? formattedDistance : showDistancePlaceholder ? "… km" : "";
   const serviceTags = normalizeServiceTags(item.creator.offerTags);
   const visibleServiceTags = serviceTags.slice(0, 2);
   const hiddenServiceCount = Math.max(0, serviceTags.length - visibleServiceTags.length);
@@ -298,7 +310,7 @@ export const PopClipTile = memo(function PopClipTile({
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
-                    onRequestLocation();
+                    requestLocation?.();
                   }}
                   className="text-left text-[10px] font-medium text-[color:var(--muted)] hover:text-[color:var(--text)]"
                 >
@@ -310,7 +322,16 @@ export const PopClipTile = memo(function PopClipTile({
               ) : (
                 <div className="text-[10px] text-[color:var(--muted)]">
                   <span>📍 {creatorLocationLabel} (aprox.)</span>
-                  {hasDistance ? <span> · a {formattedDistance} de ti</span> : null}
+                {distanceLabel ? (
+                  <span
+                    className={clsx(
+                      "transition-opacity duration-200",
+                      hasDistance ? "opacity-100" : "opacity-60"
+                    )}
+                  >
+                    · a {distanceLabel} de ti
+                  </span>
+                ) : null}
                 </div>
               )
             ) : null}
