@@ -3,15 +3,7 @@ import clsx from "clsx";
 import { MessageCircle, Sparkles, X } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/router";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type TouchEvent,
-  type WheelEvent,
-} from "react";
+import { useCallback, useEffect, useRef, useState, type TouchEvent, type WheelEvent } from "react";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { IconGlyph } from "../ui/IconGlyph";
@@ -22,9 +14,6 @@ import { PopClipMediaActions, popClipMediaActionButtonClass } from "./PopClipMed
 import type { PopClipTileItem } from "./PopClipTile";
 
 const CAPTION_PREVIEW_LIMIT = 140;
-const PACK_PREVIEW_LIMIT = 4;
-const DEFAULT_CREATOR_PREVIEW_LIMIT = 3;
-const CREATOR_PREVIEW_LIMITS = [1, 3, 5] as const;
 const WHEEL_LOCK_MS = 450;
 const WHEEL_THRESHOLD = 32;
 const SWIPE_THRESHOLD = 48;
@@ -188,72 +177,16 @@ export function PopClipViewer({
   const visibleCaption = captionExpanded || !isCaptionLong
     ? captionText
     : `${captionText.slice(0, CAPTION_PREVIEW_LIMIT).trimEnd()}…`;
-  const resolvedMenuItems = useMemo(
-    () => (activeItem && menuItems ? menuItems(activeItem) : []),
-    [activeItem, menuItems]
-  );
-  const creatorPreviewLimit = normalizeCreatorPreviewLimit(activeItem?.creator?.popclipPreviewLimit);
-  const creatorKey = activeItem ? activeItem.creatorId ?? activeItem.creator.handle : "";
-  const packId = activeItem?.packId ?? null;
-  const packScopeItems = useMemo(
-    () =>
-      activeItem && packId
-        ? items.filter(
-            (item) =>
-              item.packId === packId && (item.creatorId ?? item.creator.handle) === creatorKey
-          )
-        : [],
-    [activeItem, creatorKey, items, packId]
-  );
-  const creatorScopeItems = useMemo(
-    () =>
-      activeItem
-        ? items.filter((item) => (item.creatorId ?? item.creator.handle) === creatorKey)
-        : [],
-    [activeItem, creatorKey, items]
-  );
-  const packOtherItems = packScopeItems.filter((item) => item.id !== activeItem?.id);
-  const packPreview = packOtherItems.slice(0, PACK_PREVIEW_LIMIT);
-  const creatorPreview = creatorScopeItems.slice(0, creatorPreviewLimit);
-  const packTotal = packScopeItems.length;
-  const creatorTotal = creatorScopeItems.length;
-  const packMore = Math.max(0, packTotal - (packPreview.length + 1));
-  const showPackPreview = Boolean(packId) && packOtherItems.length >= 3;
-  const previewItems = showPackPreview ? packPreview : creatorPreview;
-  const shouldShowPreview = showPackPreview ? packPreview.length >= 3 : creatorPreview.length > 0;
-  const previewTitle = showPackPreview
-    ? "Este pack incluye"
-    : activeItem
-      ? `Más de @${activeItem.creator.handle}`
-      : "Más";
-  const previewScopeIndex = showPackPreview
-    ? Math.max(1, packScopeItems.findIndex((item) => item.id === activeItem?.id) + 1)
-    : 1;
-  const previewHeading = showPackPreview
-    ? packTotal
-      ? `${previewTitle} · ${previewScopeIndex}/${packTotal}`
-      : previewTitle
-    : activeItem
-      ? `${previewTitle} · Vista previa (${creatorPreview.length})`
-      : previewTitle;
-  const previewCtaLabel = showPackPreview ? "Ver pack" : "Ver PopClips";
-  const previewCtaTotal = showPackPreview ? packTotal : creatorTotal;
-  const previewCtaLabelWithCount = previewCtaTotal
-    ? `${previewCtaLabel} (${previewCtaTotal})`
-    : previewCtaLabel;
-  const previewCtaHref =
-    showPackPreview && packId && activeItem
-      ? `/p/${encodeURIComponent(activeItem.creator.handle)}/${encodeURIComponent(packId)}`
-      : activeItem
-        ? buildProfileHref(activeItem)
-        : "#";
+  const resolvedMenuItems = activeItem && menuItems ? menuItems(activeItem) : [];
   const allowLocation = activeItem?.creator?.allowLocation !== false;
   const distanceLabel =
     allowLocation && Number.isFinite(activeItem?.distanceKm ?? NaN)
-      ? `≈${Math.round(activeItem?.distanceKm as number)} km`
+      ? `~${Math.round(activeItem?.distanceKm as number)} km`
       : "";
   const locationLabel = allowLocation ? (activeItem?.creator?.locationLabel || "").trim() : "";
-  const locationChipLabel = locationLabel ? `📍 ${locationLabel} (aprox.)` : "";
+  const locationChipLabel = locationLabel
+    ? `📍 ${locationLabel} (aprox.)${distanceLabel ? ` · ${distanceLabel}` : ""}`
+    : "";
   const ratingValue = activeItem?.creator?.ratingAvg ?? null;
   const ratingCount = activeItem?.creator?.ratingCount ?? null;
   const showScrollHint = isDesktop && canScroll && !hasScrolled;
@@ -264,7 +197,6 @@ export function PopClipViewer({
   const handleClose = () => onOpenChange(false);
   const chatHref = buildChatHref(activeItem);
   const profileHref = buildProfileHref(activeItem);
-  const showTopProfileCta = showPackPreview || !shouldShowPreview;
 
   const navigateFromViewer = (href: string) => {
     if (!href) return;
@@ -276,15 +208,6 @@ export function PopClipViewer({
     window.requestAnimationFrame(() => {
       void router.push(href);
     });
-  };
-
-  const handlePreviewSelect = (clipId: string) => {
-    if (showPackPreview) {
-      navigateFromViewer(previewCtaHref);
-      return;
-    }
-    const nextIndex = items.findIndex((item) => item.id === clipId);
-    if (nextIndex >= 0) onNavigate(nextIndex);
   };
 
   return (
@@ -402,7 +325,6 @@ export function PopClipViewer({
                         count={ratingCount}
                         variant="chip"
                       />
-                      {distanceLabel ? <MetaChip label={distanceLabel} /> : null}
                       {locationChipLabel ? <MetaChip label={locationChipLabel} /> : null}
                     </div>
                     <div className="text-sm text-[color:var(--muted)]">
@@ -418,106 +340,27 @@ export function PopClipViewer({
                       ) : null}
                     </div>
                   </div>
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => navigateFromViewer(profileHref)}
+                      className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-full border border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] px-4 text-[12px] font-semibold text-white shadow-sm transition hover:bg-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
+                    >
+                      <span className="inline-flex min-w-0 items-center gap-2">
+                        <span className="truncate">Ver perfil</span>
+                        <span aria-hidden="true">→</span>
+                      </span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => navigateFromViewer(chatHref)}
-                      className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] px-4 text-[12px] font-semibold text-white shadow-sm transition hover:bg-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
+                      aria-label="Abrir chat"
+                      title="Abrir chat"
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-white/5 text-white/90 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
                     >
-                      <span className="inline-flex items-center gap-2">
-                        <MessageCircle className="h-4 w-4" aria-hidden="true" />
-                        <span>Abrir chat</span>
-                      </span>
+                      <MessageCircle className="h-4 w-4" aria-hidden="true" />
                     </button>
-                    {showTopProfileCta ? (
-                      <button
-                        type="button"
-                        onClick={() => navigateFromViewer(profileHref)}
-                        className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-white/20 bg-white/5 px-4 text-[12px] font-semibold text-white/90 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
-                      >
-                        <span className="inline-flex min-w-0 items-center gap-2">
-                          <span className="truncate">Ver perfil</span>
-                          <span aria-hidden="true">→</span>
-                        </span>
-                      </button>
-                    ) : null}
                   </div>
-                  {shouldShowPreview ? (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-semibold uppercase tracking-[0.2em] text-[color:var(--muted)]">
-                          {previewHeading}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => navigateFromViewer(previewCtaHref)}
-                          className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[10px] font-semibold text-[color:var(--text)] transition hover:bg-[color:var(--surface-2)]"
-                        >
-                          <span className="inline-flex items-center gap-1">
-                            <span>{previewCtaLabelWithCount}</span>
-                            <span aria-hidden="true">→</span>
-                          </span>
-                        </button>
-                      </div>
-                      <div className="grid grid-cols-4 gap-2 md:grid-cols-5">
-                        {previewItems.map((item) => {
-                          const thumbSrc =
-                            item.thumbnailUrl || item.posterUrl || item.previewImageUrl || "";
-                          const thumbLabel =
-                            item.title?.trim() ||
-                            item.caption?.trim() ||
-                            `PopClip de @${item.creator.handle}`;
-                          return (
-                            <button
-                              key={item.id}
-                              type="button"
-                              onClick={() => handlePreviewSelect(item.id)}
-                              className="group relative aspect-[9/16] w-full overflow-hidden rounded-xl border border-white/10 bg-[color:var(--surface-2)] focus:outline-none focus:ring-2 focus:ring-[color:var(--ring)]"
-                            >
-                              {thumbSrc ? (
-                                <Image
-                                  src={normalizeImageSrc(thumbSrc)}
-                                  alt={thumbLabel}
-                                  layout="fill"
-                                  objectFit="cover"
-                                  sizes="(max-width: 768px) 25vw, (max-width: 1024px) 20vw, 84px"
-                                  className="object-cover transition duration-200 group-hover:scale-[1.03]"
-                                />
-                              ) : (
-                                <div className="flex h-full w-full items-center justify-center text-[10px] font-semibold text-white/70">
-                                  PopClip
-                                </div>
-                              )}
-                            </button>
-                          );
-                        })}
-                        {showPackPreview && packMore > 0 ? (
-                          <button
-                            type="button"
-                            onClick={() => navigateFromViewer(previewCtaHref)}
-                            aria-label={
-                              showPackPreview
-                                ? `Ver pack con ${packTotal} items`
-                                : `Ver perfil con ${creatorTotal} clips`
-                            }
-                            className="relative flex aspect-[9/16] w-full items-center justify-center overflow-hidden rounded-xl border border-white/15 bg-[color:var(--surface-2)] text-sm font-semibold text-white/90 transition hover:bg-[color:var(--surface-1)] focus:outline-none focus:ring-2 focus:ring-[color:var(--ring)]"
-                          >
-                            <span className="text-base font-semibold">+{packMore}</span>
-                          </button>
-                        ) : null}
-                        {!showPackPreview && creatorTotal > creatorPreview.length ? (
-                          <button
-                            type="button"
-                            onClick={() => navigateFromViewer(previewCtaHref)}
-                            aria-label={`Ver PopClips con ${creatorTotal} clips`}
-                            className="flex aspect-[9/16] w-full items-center justify-center rounded-xl border border-white/15 bg-[color:var(--surface-2)] text-[11px] font-semibold text-white/90 transition hover:bg-[color:var(--surface-1)] focus:outline-none focus:ring-2 focus:ring-[color:var(--ring)]"
-                          >
-                            <span>Ver PopClips ({creatorTotal})</span>
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  ) : null}
                 </div>
                 {showScrollHint ? (
                   <div className="pointer-events-none absolute inset-x-0 bottom-0">
@@ -556,11 +399,4 @@ function useMediaQuery(query: string) {
   }, [query]);
 
   return matches;
-}
-
-function normalizeCreatorPreviewLimit(value?: number | null) {
-  if (value && CREATOR_PREVIEW_LIMITS.includes(value as (typeof CREATOR_PREVIEW_LIMITS)[number])) {
-    return value as (typeof CREATOR_PREVIEW_LIMITS)[number];
-  }
-  return DEFAULT_CREATOR_PREVIEW_LIMIT;
 }
