@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Map as LeafletMap } from "leaflet";
-import { LocationPickerMap } from "../home/LocationPickerMap";
+import { LocationPickerMap } from "./LocationPickerMap";
 
 type GeoSearchResult = {
   id: string;

@@ -3,7 +3,7 @@ import path from "path";
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../../lib/prisma.server";
 import { slugifyHandle } from "../../../../lib/fan/session";
-import { distanceKmFromGeohash } from "../../../../lib/geo";
+import { decodeGeohash, haversineKm } from "../../../../lib/geo";
 import { PUBLIC_CREATOR_PROFILE_SELECT, PUBLIC_CREATOR_SELECT } from "../../../../lib/publicCreatorSelect";
 
 type CreatorResult = {
@@ -56,7 +56,7 @@ type CreatorResponseTime = "INSTANT" | "LT_24H" | "LT_72H";
 const DEFAULT_LIMIT = 12;
 const MAX_LIMIT = 20;
 const DEFAULT_KM = 25;
-const MIN_KM = 5;
+const MIN_KM = 1;
 const MAX_KM = 200;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -66,9 +66,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const kmRaw = parseNumber(getQueryString(req.query.radiusKm ?? req.query.km));
-  const latRaw = parseNumber(getQueryString(req.query.centerLat ?? req.query.lat));
-  const lngRaw = parseNumber(getQueryString(req.query.centerLng ?? req.query.lng));
+  const kmRaw = parseNumber(getQueryString(req.query.radiusKm ?? req.query.r ?? req.query.km));
+  const latRaw = parseNumber(getQueryString(req.query.lat ?? req.query.centerLat));
+  const lngRaw = parseNumber(getQueryString(req.query.lng ?? req.query.centerLng));
   const hasUserLocation = Number.isFinite(latRaw) && Number.isFinite(lngRaw);
   const km = normalizeKm(kmRaw);
   const avail = parseFlag(req.query.avail);
@@ -153,7 +153,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const scored = candidates.map((candidate) => {
       const distanceKm =
         userLocation && candidate.locationGeohash
-          ? distanceKmFromGeohash(userLocation, candidate.locationGeohash)
+          ? resolveDistanceKm(userLocation, candidate.locationGeohash, hasUserLocation ? km : null)
           : null;
       return {
         ...candidate,
@@ -259,6 +259,25 @@ function parseNumber(value?: string) {
   if (!value) return NaN;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : NaN;
+}
+
+function resolveDistanceKm(
+  userLocation: { lat: number; lng: number },
+  geohash: string,
+  radiusKm: number | null
+) {
+  const decoded = decodeGeohash(geohash);
+  if (!decoded) return null;
+  if (Number.isFinite(radiusKm ?? NaN)) {
+    const rad = Math.PI / 180;
+    const latDelta = (radiusKm as number) / 111;
+    const lngDelta = (radiusKm as number) / (111 * Math.cos(userLocation.lat * rad));
+    if (Math.abs(decoded.lat - userLocation.lat) > latDelta) return null;
+    if (Math.abs(decoded.lng - userLocation.lng) > lngDelta) return null;
+  }
+  const distance = haversineKm(userLocation, decoded);
+  if (!Number.isFinite(distance)) return null;
+  return distance;
 }
 
 function normalizeKm(value?: number): number {

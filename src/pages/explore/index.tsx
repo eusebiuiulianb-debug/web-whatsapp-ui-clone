@@ -15,6 +15,7 @@ import {
 import { HomeCategorySheet, type HomeCategory } from "../../components/home/HomeCategorySheet";
 import { HomeFilterSheet } from "../../components/home/HomeFilterSheet";
 import { HomeSectionCard } from "../../components/home/HomeSectionCard";
+import { LocationFilterModal } from "../../components/location/LocationFilterModal";
 import { DesktopMenuNav } from "../../components/navigation/DesktopMenuNav";
 import { PublicStickyHeader } from "../../components/navigation/PublicStickyHeader";
 import { PopClipViewer } from "../../components/popclips/PopClipViewer";
@@ -26,6 +27,7 @@ import { PillButton } from "../../components/ui/PillButton";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { VerifiedInlineBadge } from "../../components/ui/VerifiedInlineBadge";
 import { useRouter } from "next/router";
+import type { ParsedUrlQuery } from "querystring";
 import { countActiveFilters, parseHomeFilters, toHomeFiltersQuery, type HomeFilters } from "../../lib/homeFilters";
 import { subscribeCreatorStatusUpdates } from "../../lib/creatorStatusEvents";
 import { subscribeFollowUpdates, type FollowUpdateDetail } from "../../lib/followEvents";
@@ -128,11 +130,36 @@ type SearchAction = {
   onSelect: () => void;
 };
 
-const FILTER_QUERY_KEYS = ["km", "lat", "lng", "loc", "avail", "r24", "vip"] as const;
+const FILTER_QUERY_KEYS = [
+  "radiusKm",
+  "lat",
+  "lng",
+  "locLabel",
+  "avail",
+  "r24",
+  "vip",
+  "r",
+  "km",
+  "loc",
+  "centerLat",
+  "centerLng",
+] as const;
+
+const LOCATION_QUERY_KEYS = [
+  "radiusKm",
+  "lat",
+  "lng",
+  "locLabel",
+  "r",
+  "km",
+  "loc",
+  "centerLat",
+  "centerLng",
+] as const;
 const FOLLOWING_QUERY_KEY = "following";
 const CATEGORY_QUERY_KEY = "cat";
 const DEFAULT_FILTER_KM = 25;
-const MIN_FILTER_KM = 5;
+const MIN_FILTER_KM = 1;
 const MAX_FILTER_KM = 200;
 const RECENT_SEARCH_KEY = "ip_recent_searches_v1";
 const MAX_RECENT_SEARCHES = 6;
@@ -270,8 +297,9 @@ function ExploreContent() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [categorySheetOpen, setCategorySheetOpen] = useState(false);
-  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
-  const [openLocationPicker, setOpenLocationPicker] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [locationPickerOpen, setLocationPickerOpen] = useState(false);
+  const [locationPickerMode, setLocationPickerMode] = useState<"geo" | "search" | null>(null);
   const [feedItems, setFeedItems] = useState<PopClipFeedItem[]>([]);
   const [feedCursor, setFeedCursor] = useState<string | null>(null);
   const [feedLoading, setFeedLoading] = useState(false);
@@ -350,9 +378,12 @@ function ExploreContent() {
   const filters = useMemo(
     () =>
       parseHomeFilters({
+        radiusKm: router.query.radiusKm,
+        r: router.query.r,
         km: router.query.km,
         lat: router.query.lat,
         lng: router.query.lng,
+        locLabel: router.query.locLabel,
         loc: router.query.loc,
         avail: router.query.avail,
         r24: router.query.r24,
@@ -360,9 +391,12 @@ function ExploreContent() {
       }),
     [
       router.query.avail,
+      router.query.radiusKm,
+      router.query.r,
       router.query.km,
       router.query.lat,
       router.query.lng,
+      router.query.locLabel,
       router.query.loc,
       router.query.r24,
       router.query.vip,
@@ -424,14 +458,8 @@ function ExploreContent() {
     return label || "Mi ubicación";
   }, [filters.loc, hasLocation]);
   const feedQueryString = useMemo(() => {
-    const params = new URLSearchParams(filterQueryString);
-    if (hasLocation && centerLat !== null && centerLng !== null) {
-      params.set("centerLat", String(centerLat));
-      params.set("centerLng", String(centerLng));
-      params.set("radiusKm", String(radiusKm));
-    }
-    return params.toString();
-  }, [centerLat, centerLng, filterQueryString, hasLocation, radiusKm]);
+    return buildExploreQueryParams(router.query).toString();
+  }, [router.query]);
   const searchTerm = search.trim();
   const hasSearchValue = search.length > 0;
   const showSearchPanel = isSearchOpen;
@@ -471,6 +499,7 @@ function ExploreContent() {
     },
     [router]
   );
+
 
   const clearQueryFilters = useCallback(() => {
     const baseQuery = sanitizeQuery(router.query);
@@ -576,17 +605,35 @@ function ExploreContent() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
-  const openLocationFilters = useCallback(() => {
-    setOpenLocationPicker(true);
-    setFilterSheetOpen(true);
+  const openLocationPicker = useCallback((mode: "geo" | "search" = "search") => {
+    setLocationPickerMode(mode);
+    setFiltersOpen(false);
+    window.requestAnimationFrame(() => setLocationPickerOpen(true));
   }, []);
+
+  const closeLocationPicker = useCallback(() => {
+    setLocationPickerOpen(false);
+    setLocationPickerMode(null);
+  }, []);
+
+  const handleRequestLocation = useCallback(() => {
+    openLocationPicker("search");
+  }, [openLocationPicker]);
+
+  const handleClearLocation = useCallback(() => {
+    const baseQuery = sanitizeQuery(router.query);
+    LOCATION_QUERY_KEYS.forEach((key) => {
+      delete baseQuery[key];
+    });
+    void router.replace({ pathname: router.pathname, query: baseQuery }, undefined, { shallow: true });
+  }, [router]);
 
   useEffect(() => {
     if (!router.isReady) return;
     const raw = router.query.openFilters;
     const value = Array.isArray(raw) ? raw[0] : raw;
     if (value !== "1" && value !== "true") return;
-    setFilterSheetOpen(true);
+    setFiltersOpen(true);
     const nextQuery = sanitizeQuery(router.query);
     delete nextQuery.openFilters;
     void router.replace({ pathname: "/explore", query: nextQuery }, undefined, { shallow: true });
@@ -792,7 +839,7 @@ function ExploreContent() {
       ) {
         return;
       }
-      if (filterSheetOpen || categorySheetOpen || captionSheetOpen) return;
+      if (filtersOpen || categorySheetOpen || captionSheetOpen) return;
       if (!event.metaKey && !event.ctrlKey) return;
       if (event.key.toLowerCase() !== "k") return;
       event.preventDefault();
@@ -800,7 +847,7 @@ function ExploreContent() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [captionSheetOpen, categorySheetOpen, filterSheetOpen, focusSearchInput]);
+  }, [captionSheetOpen, categorySheetOpen, filtersOpen, focusSearchInput]);
 
   useEffect(() => {
     const handleRouteChange = () => closeSearchPanel();
@@ -1547,6 +1594,7 @@ function ExploreContent() {
   }, []);
 
   useEffect(() => {
+    if (!router.isReady) return;
     const requestKey = feedRequestKeyRef.current + 1;
     feedRequestKeyRef.current = requestKey;
     loadMoreAbortRef.current?.abort();
@@ -1587,7 +1635,7 @@ function ExploreContent() {
         }
       });
     return () => controller.abort();
-  }, [feedQueryString, seedKey]);
+  }, [feedQueryString, router.isReady, seedKey]);
 
   const selectedCategory = useMemo(
     () => HOME_CATEGORIES.find((category) => category.id === selectedCategoryId) ?? null,
@@ -1980,7 +2028,7 @@ function ExploreContent() {
       <PillButton intent="secondary" size="sm" onClick={() => setCategorySheetOpen(true)}>
         Categorías
       </PillButton>
-      <PillButton intent="secondary" size="sm" onClick={() => setFilterSheetOpen(true)} className="gap-2">
+      <PillButton intent="secondary" size="sm" onClick={() => setFiltersOpen(true)} className="gap-2">
         <span>Filtros</span>
         {activeFilterCount > 0 ? (
           <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[color:rgba(var(--brand-rgb),0.2)] px-1.5 text-[11px] font-semibold text-[color:var(--text)]">
@@ -1988,6 +2036,19 @@ function ExploreContent() {
           </span>
         ) : null}
       </PillButton>
+      {hasLocation ? (
+        <button
+          type="button"
+          onClick={handleClearLocation}
+          aria-label="Quitar filtro de ubicación"
+          className="inline-flex items-center gap-2 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+        >
+          <span className="max-w-[160px] truncate">
+            {locationCenterLabel} · {radiusKm} km
+          </span>
+          <X className="h-3.5 w-3.5 text-[color:var(--muted)]" aria-hidden="true" />
+        </button>
+      ) : null}
       <PillButton
         intent={savedOnly ? "primary" : "secondary"}
         size="sm"
@@ -2074,6 +2135,7 @@ function ExploreContent() {
   }, [isDev, refreshSavedItems, seedLoading, showToast]);
 
   const loadMoreFeed = useCallback(async () => {
+    if (!router.isReady) return;
     if (!feedCursor || loadMorePendingRef.current) return;
     loadMorePendingRef.current = true;
     const requestKey = feedRequestKeyRef.current;
@@ -2111,7 +2173,7 @@ function ExploreContent() {
       }
       loadMorePendingRef.current = false;
     }
-  }, [feedCursor, feedQueryString]);
+  }, [feedCursor, feedQueryString, router.isReady]);
 
   const handleViewerNavigate = useCallback(
     (nextIndex: number) => {
@@ -2151,6 +2213,7 @@ function ExploreContent() {
   );
 
   useEffect(() => {
+    if (!router.isReady) return;
     const params = new URLSearchParams(feedQueryString);
     params.set("limit", "12");
     const queryString = params.toString();
@@ -2186,7 +2249,7 @@ function ExploreContent() {
         if (!controller.signal.aborted) setCreatorsLoading(false);
       });
     return () => controller.abort();
-  }, [feedQueryString, seedKey]);
+  }, [feedQueryString, router.isReady, seedKey]);
 
   return (
     <>
@@ -2475,7 +2538,7 @@ function ExploreContent() {
                                     organizerItemId={organizerItemId}
                                     organizerCollectionId={organizerCollectionId}
                                     hasLocationCenter={hasLocation}
-                                    onRequestLocation={openLocationFilters}
+                                    onRequestLocation={handleRequestLocation}
                                     onOpenCaption={openCaptionSheet}
                                     onCopyLink={handleCopyLink}
                                     onShare={handleShareLink}
@@ -2696,8 +2759,21 @@ function ExploreContent() {
               </div>
             ) : showFeedEmpty ? (
               <div className="flex flex-col items-start gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-[color:var(--muted)]">
-                <span className="text-sm">Aún no hay PopClips. Prueba a quitar filtros o vuelve más tarde.</span>
+                <span className="text-sm">
+                  {hasLocation
+                    ? `No hay PopClips dentro de ${radiusKm} km de ${locationCenterLabel}.`
+                    : "Aún no hay PopClips. Prueba a quitar filtros o vuelve más tarde."}
+                </span>
                 {seedError ? <span className="text-[color:var(--danger)]">{seedError}</span> : null}
+                {hasLocation ? (
+                  <button
+                    type="button"
+                    onClick={handleClearLocation}
+                    className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                  >
+                    Quitar ubicación
+                  </button>
+                ) : null}
                 {isDev ? (
                   <button
                     type="button"
@@ -2737,7 +2813,7 @@ function ExploreContent() {
                         organizerItemId={organizerItemId}
                         organizerCollectionId={organizerCollectionId}
                         hasLocationCenter={hasLocation}
-                        onRequestLocation={openLocationFilters}
+                        onRequestLocation={handleRequestLocation}
                         onOpenCaption={openCaptionSheet}
                         onCopyLink={handleCopyLink}
                         onShare={handleShareLink}
@@ -2938,15 +3014,28 @@ function ExploreContent() {
           }}
         />
         <HomeFilterSheet
-          open={filterSheetOpen}
+          open={filtersOpen}
           initialFilters={filters}
           onApply={applyFilters}
           onClear={clearQueryFilters}
-          onClose={() => {
-            setFilterSheetOpen(false);
-            setOpenLocationPicker(false);
+          onClose={() => setFiltersOpen(false)}
+          onUseMyLocation={() => openLocationPicker("geo")}
+          onSearchCity={() => openLocationPicker("search")}
+          onEditLocation={() => openLocationPicker("search")}
+          onClearLocation={handleClearLocation}
+        />
+        <LocationFilterModal
+          open={locationPickerOpen}
+          mode={locationPickerMode}
+          initialValue={{
+            lat: centerLat,
+            lng: centerLng,
+            label: filters.loc ?? "",
+            radiusKm,
           }}
-          openLocationOnMount={openLocationPicker}
+          minRadiusKm={MIN_FILTER_KM}
+          maxRadiusKm={MAX_FILTER_KM}
+          onClose={closeLocationPicker}
         />
         <PopClipViewer
           open={viewerOpen}
@@ -3015,6 +3104,29 @@ function sanitizeQuery(query: Record<string, string | string[] | undefined>) {
 function pickQueryValue(value: string | string[] | undefined) {
   if (Array.isArray(value)) return value[0] ?? "";
   return value ?? "";
+}
+
+function buildExploreQueryParams(query: ParsedUrlQuery) {
+  const params = new URLSearchParams();
+  const avail = pickQueryValue(query.avail as string | string[] | undefined);
+  const r24 = pickQueryValue(query.r24 as string | string[] | undefined);
+  const vip = pickQueryValue(query.vip as string | string[] | undefined);
+  if (avail) params.set("avail", avail);
+  if (r24) params.set("r24", r24);
+  if (vip) params.set("vip", vip);
+
+  const lat = pickQueryValue((query.lat ?? query.centerLat) as string | string[] | undefined);
+  const lng = pickQueryValue((query.lng ?? query.centerLng) as string | string[] | undefined);
+  const radiusKm = pickQueryValue((query.radiusKm ?? query.r ?? query.km) as string | string[] | undefined);
+  const locLabel = pickQueryValue((query.locLabel ?? query.loc) as string | string[] | undefined);
+  if (lat && lng) {
+    params.set("lat", lat);
+    params.set("lng", lng);
+    if (radiusKm) params.set("radiusKm", radiusKm);
+    if (locLabel) params.set("locLabel", locLabel);
+  }
+
+  return params;
 }
 
 function mergeUniqueFeedItems(items: PopClipFeedItem[]) {
