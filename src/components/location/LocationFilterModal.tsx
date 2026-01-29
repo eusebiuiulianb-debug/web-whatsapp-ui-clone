@@ -149,6 +149,50 @@ export function LocationFilterModal({
         nextQuery[key] = value;
       });
 
+      // Avoid loop: check if query actually changed
+      const currentQuery = router.query;
+      let hasChanges = false;
+      const allKeys = new Set([...Object.keys(nextQuery), ...Object.keys(currentQuery)]);
+
+      // We only care about location keys for this check, or we can check everything nextQuery touches
+      // The simplest safe check is: does nextQuery differ from currentQuery for the keys in nextQuery?
+      // And also ensuring we aren't removing keys that should stay?
+      // Actually `router.push({ query: nextQuery })` merges or replaces? Next.js router.push with object merges into pathname if not specified? 
+      // No, `router.push({ pathname, query })` replaces the query string with the new one constructed from `query`.
+      // The `buildExploreSearchParams` likely preserves existing params that aren't location related?
+      // Let's assume `buildExploreSearchParams` builds the FULL set of params we want.
+      // Let's simplified check: match strictly string values.
+
+      // Let's check specifically the keys we are touching.
+      // If we are just updating location, we want to know if the result URL is different.
+      // `router.asPath` vs built params.
+
+      const nextSearch = params.toString();
+      const currentSearch = router.asPath.split('?')[1] || "";
+      // This might be too strict due to ordering or extra params. 
+      // Let's try to be smart.
+
+      for (const key in nextQuery) {
+        if (nextQuery[key] !== currentQuery[key]) {
+          hasChanges = true;
+          break;
+        }
+      }
+      // Also check if any key in current is missing in next (if nextQuery is supposed to be exhaustive for these params)
+      // `buildExploreSearchParams` takes router.asPath as base, so it should preserve others.
+      // So we mainly care if the NEW values are different from CURRENT values.
+
+      if (!hasChanges) {
+        // Optimization: check if any location key is PRESENT in current but missing in next (meaning we removed it?)
+        // But buildExploreSearchParams handles that. 
+        // If `hasChanges` is false, it means all keys in `nextQuery` match `router.query`.
+        // Is it possible `router.query` has a key that `nextQuery` set to undefined/null and we missed it?
+        // params.forEach only iterates present keys.
+
+        if (DEBUG_LOC) console.log("[loc] applyLocationToUrl skipped (no changes)");
+        return;
+      }
+
       if (DEBUG_LOC) {
         console.log("[loc] applyLocationToUrl nextQuery", nextQuery);
       }
@@ -282,18 +326,7 @@ export function LocationFilterModal({
           setGeoQuery(resolved);
           setGeoResults([]);
           setGeoLoading(false);
-          const payload: LocationApplyPayload = {
-            lat: latitude,
-            lng: longitude,
-            label: resolved,
-            radiusKm: resolvedRadiusKm,
-            placeId: resolvedPlaceId || null,
-          };
-          try {
-            await applyAndClose(payload);
-          } catch (err) {
-            console.error("[LocationFilterModal] apply failed", err);
-          }
+          // Removed auto-apply to prevent closing modal
         },
         (err) => {
           if (geoLocateRequestRef.current !== requestId) return;
@@ -308,7 +341,7 @@ export function LocationFilterModal({
       setGeoError("No pudimos obtener tu ubicación. Busca una ciudad.");
       setGeoLoading(false);
     }
-  }, [applyAndClose, maxRadiusKm, minRadiusKm]);
+  }, [maxRadiusKm, minRadiusKm]);
 
   useEffect(() => {
     if (!open) return;

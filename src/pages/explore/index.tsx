@@ -528,6 +528,7 @@ function ExploreContent() {
         delete baseQuery[key];
       });
       const mergedQuery = { ...baseQuery, ...toHomeFiltersQuery(nextFilters) };
+      if (!hasQueryChanged(router.query, mergedQuery)) return;
       void router.push({ pathname: router.pathname, query: mergedQuery }, undefined, { shallow: true });
     },
     [router]
@@ -539,6 +540,7 @@ function ExploreContent() {
     FILTER_QUERY_KEYS.forEach((key) => {
       delete baseQuery[key];
     });
+    if (!hasQueryChanged(router.query, baseQuery)) return;
     void router.push({ pathname: router.pathname, query: baseQuery }, undefined, { shallow: true });
   }, [router]);
 
@@ -550,6 +552,7 @@ function ExploreContent() {
         delete baseQuery.view;
         delete baseQuery.collectionId;
         delete baseQuery[FOLLOWING_QUERY_KEY];
+        if (!hasQueryChanged(router.query, baseQuery)) return;
         void router.push({ pathname: "/explore", query: baseQuery }, undefined, { shallow: true });
         return;
       }
@@ -565,6 +568,7 @@ function ExploreContent() {
       } else {
         delete baseQuery.collectionId;
       }
+      if (!hasQueryChanged(router.query, baseQuery)) return;
       void router.push({ pathname: "/explore", query: baseQuery }, undefined, { shallow: true });
     },
     [router]
@@ -575,13 +579,14 @@ function ExploreContent() {
       const baseQuery = sanitizeQuery(router.query);
       if (!enabled) {
         delete baseQuery[FOLLOWING_QUERY_KEY];
+        if (!hasQueryChanged(router.query, baseQuery)) return;
         void router.push({ pathname: "/explore", query: baseQuery }, undefined, { shallow: true });
         return;
       }
       baseQuery[FOLLOWING_QUERY_KEY] = "1";
-      delete baseQuery.saved;
       delete baseQuery.view;
       delete baseQuery.collectionId;
+      if (!hasQueryChanged(router.query, baseQuery)) return;
       void router.push({ pathname: "/explore", query: baseQuery }, undefined, { shallow: true });
     },
     [router]
@@ -595,6 +600,7 @@ function ExploreContent() {
       } else {
         delete baseQuery[CATEGORY_QUERY_KEY];
       }
+      if (!hasQueryChanged(router.query, baseQuery)) return;
       void router.push({ pathname: "/explore", query: baseQuery }, undefined, { shallow: true });
     },
     [router]
@@ -658,6 +664,7 @@ function ExploreContent() {
     LOCATION_QUERY_KEYS.forEach((key) => {
       delete baseQuery[key];
     });
+    if (!hasQueryChanged(router.query, baseQuery)) return;
     void router.replace({ pathname: router.pathname, query: baseQuery }, undefined, { shallow: true });
   }, [router]);
 
@@ -742,8 +749,8 @@ function ExploreContent() {
           | null;
         const creatorIds = Array.isArray(payload?.creatorIds)
           ? payload.creatorIds.filter(
-              (id): id is string => typeof id === "string" && id.trim().length > 0
-            )
+            (id): id is string => typeof id === "string" && id.trim().length > 0
+          )
           : [];
         const count = typeof payload?.count === "number" && Number.isFinite(payload.count)
           ? payload.count
@@ -1697,9 +1704,8 @@ function ExploreContent() {
     (items: PopClipFeedItem[]) => {
       if (!selectedCategory && !normalizedSearch) return items;
       return items.filter((item) => {
-        const haystack = `${item.title || ""} ${item.caption || ""} ${item.creator.displayName} ${
-          item.creator.handle
-        } ${item.creator.locationLabel || ""}`.toLowerCase();
+        const haystack = `${item.title || ""} ${item.caption || ""} ${item.creator.displayName} ${item.creator.handle
+          } ${item.creator.locationLabel || ""}`.toLowerCase();
         if (selectedCategory) {
           const keywords = selectedCategory.keywords.map((word) => word.toLowerCase());
           if (!keywords.some((keyword) => haystack.includes(keyword))) return false;
@@ -1723,9 +1729,8 @@ function ExploreContent() {
   const filteredSavedPopclips = useMemo(() => {
     if (!normalizedSearch) return savedPopclips;
     return savedPopclips.filter((item) => {
-      const haystack = `${item.title || ""} ${item.caption || ""} ${item.creator.displayName} ${
-        item.creator.handle
-      } ${item.creator.locationLabel || ""}`.toLowerCase();
+      const haystack = `${item.title || ""} ${item.caption || ""} ${item.creator.displayName} ${item.creator.handle
+        } ${item.creator.locationLabel || ""}`.toLowerCase();
       return haystack.includes(normalizedSearch);
     });
   }, [normalizedSearch, savedPopclips]);
@@ -1956,7 +1961,7 @@ function ExploreContent() {
                 className={clsx(
                   "space-y-2",
                   (hasRecentActions || shortcutActions.length > 0 || categoryActions.length > 0) &&
-                    "border-b border-[color:var(--surface-border)] pb-3"
+                  "border-b border-[color:var(--surface-border)] pb-3"
                 )}
               >
                 {searchQueryActions.map((action) => {
@@ -1984,7 +1989,7 @@ function ExploreContent() {
                 className={clsx(
                   "space-y-2",
                   (shortcutActions.length > 0 || categoryActions.length > 0) &&
-                    "border-b border-[color:var(--surface-border)] pb-3"
+                  "border-b border-[color:var(--surface-border)] pb-3"
                 )}
               >
                 <div className="flex items-center justify-between">
@@ -2003,13 +2008,13 @@ function ExploreContent() {
                   {recentActions.map((action) => {
                     const isActive = activeSearchIndex === action.index;
                     return (
-                    <button
-                      key={action.id}
-                      type="button"
-                      onClick={() => runSearchAction(action)}
-                      className={clsx(
-                        "flex items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]",
-                        isActive && "bg-[color:var(--surface-2)]"
+                      <button
+                        key={action.id}
+                        type="button"
+                        onClick={() => runSearchAction(action)}
+                        className={clsx(
+                          "flex items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]",
+                          isActive && "bg-[color:var(--surface-2)]"
                         )}
                       >
                         <Clock className="h-4 w-4 flex-none text-[color:var(--muted)]" aria-hidden="true" />
@@ -2174,10 +2179,12 @@ function ExploreContent() {
         );
         await refreshSavedItems({ silent: true });
       }
+      // Force feed refresh
       setFeedItems([]);
       setFeedCursor(null);
       setFeedError("");
       setSeedKey((prev) => prev + 1);
+      if (feedContext) feedContext.clear();
       showToast(count > 0 ? `Clips demo generados (${count}).` : "Clips demo listos.");
     } catch (_err) {
       const message = "No se pudieron generar los clips demo.";
@@ -2186,7 +2193,7 @@ function ExploreContent() {
     } finally {
       setSeedLoading(false);
     }
-  }, [isDev, refreshSavedItems, seedLoading, showToast]);
+  }, [feedContext, isDev, refreshSavedItems, seedLoading, showToast]);
 
   const loadMoreFeed = useCallback(async () => {
     if (!router.isReady) return;
@@ -2293,8 +2300,8 @@ function ExploreContent() {
         const creators = Array.isArray(payload.creators)
           ? payload.creators
           : Array.isArray(payload.items)
-          ? payload.items
-          : [];
+            ? payload.items
+            : [];
         setRecommendedCreators(creators);
       })
       .catch((err) => {
@@ -2427,459 +2434,459 @@ function ExploreContent() {
               title="PopClips"
               subtitle="Explora clips y entra al chat cuando te encaje."
             >
-            {showLocationBanner ? (
-              <div className="mb-4 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 py-3 text-[color:var(--text)]">
-                <p className="text-xs font-semibold">
-                  Cerca de {locationCenterLabel} (aprox.) · Radio {radiusKm} km
-                </p>
-                <p className="mt-1 text-[11px] text-[color:var(--muted)]">
-                  Distancias aproximadas por privacidad.
-                </p>
-              </div>
-            ) : null}
-            {savedOnly ? (
-              <div className="space-y-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <PillButton
-                    intent={savedView === "all" ? "primary" : "secondary"}
-                    size="sm"
-                    aria-pressed={savedView === "all"}
-                    onClick={() => {
-                      setSavedView("all");
-                      setActiveCollectionId(null);
-                      updateSavedQuery({ saved: true, view: "all" });
-                    }}
-                  >
-                    Todo
-                  </PillButton>
-                  <PillButton
-                    intent={savedView === "collections" ? "primary" : "secondary"}
-                    size="sm"
-                    aria-pressed={savedView === "collections"}
-                    onClick={() => {
-                      setSavedView("collections");
-                      setActiveCollectionId(null);
-                      updateSavedQuery({ saved: true, view: "collections" });
-                      void refreshSavedCollections();
-                    }}
-                  >
-                    Colecciones
-                  </PillButton>
+              {showLocationBanner ? (
+                <div className="mb-4 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 py-3 text-[color:var(--text)]">
+                  <p className="text-xs font-semibold">
+                    Cerca de {locationCenterLabel} (aprox.) · Radio {radiusKm} km
+                  </p>
+                  <p className="mt-1 text-[11px] text-[color:var(--muted)]">
+                    Distancias aproximadas por privacidad.
+                  </p>
                 </div>
+              ) : null}
+              {savedOnly ? (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <PillButton
+                      intent={savedView === "all" ? "primary" : "secondary"}
+                      size="sm"
+                      aria-pressed={savedView === "all"}
+                      onClick={() => {
+                        setSavedView("all");
+                        setActiveCollectionId(null);
+                        updateSavedQuery({ saved: true, view: "all" });
+                      }}
+                    >
+                      Todo
+                    </PillButton>
+                    <PillButton
+                      intent={savedView === "collections" ? "primary" : "secondary"}
+                      size="sm"
+                      aria-pressed={savedView === "collections"}
+                      onClick={() => {
+                        setSavedView("collections");
+                        setActiveCollectionId(null);
+                        updateSavedQuery({ saved: true, view: "collections" });
+                        void refreshSavedCollections();
+                      }}
+                    >
+                      Colecciones
+                    </PillButton>
+                  </div>
 
-                {savedView === "all" ? (
-                  savedItemsLoading ? (
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      {Array.from({ length: 4 }).map((_, idx) => (
-                        <Skeleton key={`saved-skeleton-${idx}`} className="h-20 w-full rounded-2xl" />
-                      ))}
-                    </div>
-                  ) : savedItemsError ? (
-                    <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
-                      {savedItemsError}
-                    </div>
-                  ) : savedEmpty ? (
-                    <div className="mx-auto w-full max-w-md rounded-2xl border border-[color:var(--surface-border)] bg-[color:rgba(17,24,39,0.75)] p-6 text-[color:var(--muted)] shadow-lg shadow-black/20 backdrop-blur-sm sm:p-8">
-                      <div className="flex items-start gap-3">
-                        <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[color:rgba(var(--brand-rgb),0.3)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]">
-                          <Bookmark className="h-5 w-5" aria-hidden="true" />
-                        </span>
-                        <div className="space-y-1">
-                          <div className="text-sm font-semibold text-[color:var(--text)]">
-                            No tienes guardados todavía.
-                          </div>
-                          <div className="text-xs text-[color:var(--muted)]">
-                            Guarda clips, packs o creadores para volver rápido cuando te encajen.
+                  {savedView === "all" ? (
+                    savedItemsLoading ? (
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        {Array.from({ length: 4 }).map((_, idx) => (
+                          <Skeleton key={`saved-skeleton-${idx}`} className="h-20 w-full rounded-2xl" />
+                        ))}
+                      </div>
+                    ) : savedItemsError ? (
+                      <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
+                        {savedItemsError}
+                      </div>
+                    ) : savedEmpty ? (
+                      <div className="mx-auto w-full max-w-md rounded-2xl border border-[color:var(--surface-border)] bg-[color:rgba(17,24,39,0.75)] p-6 text-[color:var(--muted)] shadow-lg shadow-black/20 backdrop-blur-sm sm:p-8">
+                        <div className="flex items-start gap-3">
+                          <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[color:rgba(var(--brand-rgb),0.3)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]">
+                            <Bookmark className="h-5 w-5" aria-hidden="true" />
+                          </span>
+                          <div className="space-y-1">
+                            <div className="text-sm font-semibold text-[color:var(--text)]">
+                              No tienes guardados todavía.
+                            </div>
+                            <div className="text-xs text-[color:var(--muted)]">
+                              Guarda clips, packs o creadores para volver rápido cuando te encajen.
+                            </div>
                           </div>
                         </div>
+                        <div className="mt-5 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={exitSavedView}
+                            aria-label="Ver todo"
+                            className="inline-flex items-center justify-center rounded-full bg-[color:var(--brand-strong)] px-4 py-2 text-xs font-semibold text-white hover:bg-[color:var(--brand)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
+                          >
+                            Ver todo
+                          </button>
+                          <button
+                            type="button"
+                            onClick={exitSavedView}
+                            aria-label="Quitar filtro"
+                            className="inline-flex items-center justify-center text-xs font-semibold text-[color:var(--muted)] underline-offset-2 hover:text-[color:var(--text)] hover:underline focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
+                          >
+                            Quitar filtro
+                          </button>
+                          {isDev ? (
+                            <button
+                              type="button"
+                              onClick={handleSeedDemo}
+                              disabled={seedLoading}
+                              className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
+                            >
+                              {seedLoading ? "Generando..." : "Generar clips demo"}
+                            </button>
+                          ) : null}
+                          {seedError ? <span className="text-[color:var(--danger)]">{seedError}</span> : null}
+                        </div>
                       </div>
-                      <div className="mt-5 flex flex-wrap items-center gap-2">
+                    ) : savedNoMatch ? (
+                      <div className="flex flex-col items-start gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-[color:var(--muted)]">
+                        <span className="text-sm">No hay guardados con estos filtros.</span>
                         <button
                           type="button"
                           onClick={exitSavedView}
-                          aria-label="Ver todo"
                           className="inline-flex items-center justify-center rounded-full bg-[color:var(--brand-strong)] px-4 py-2 text-xs font-semibold text-white hover:bg-[color:var(--brand)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
                         >
                           Ver todo
                         </button>
-                        <button
-                          type="button"
-                          onClick={exitSavedView}
-                          aria-label="Quitar filtro"
-                          className="inline-flex items-center justify-center text-xs font-semibold text-[color:var(--muted)] underline-offset-2 hover:text-[color:var(--text)] hover:underline focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
-                        >
-                          Quitar filtro
-                        </button>
-                        {isDev ? (
-                          <button
-                            type="button"
-                            onClick={handleSeedDemo}
-                            disabled={seedLoading}
-                            className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
-                          >
-                            {seedLoading ? "Generando..." : "Generar clips demo"}
-                          </button>
-                        ) : null}
-                        {seedError ? <span className="text-[color:var(--danger)]">{seedError}</span> : null}
                       </div>
-                    </div>
-                  ) : savedNoMatch ? (
-                    <div className="flex flex-col items-start gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-[color:var(--muted)]">
-                      <span className="text-sm">No hay guardados con estos filtros.</span>
-                      <button
-                        type="button"
-                        onClick={exitSavedView}
-                        className="inline-flex items-center justify-center rounded-full bg-[color:var(--brand-strong)] px-4 py-2 text-xs font-semibold text-white hover:bg-[color:var(--brand)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
-                      >
-                        Ver todo
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="space-y-6">
-                      {savedPopclipIds.length > 0 ? (
-                        <div className="space-y-3">
-                          {savedPopclipsLoading ? (
-                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
-                              {Array.from({ length: 6 }).map((_, idx) => (
-                                <div
-                                  key={`saved-popclip-skeleton-${idx}`}
-                                  className="flex flex-col gap-2 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3"
-                                >
-                                  <Skeleton className="aspect-[10/13] w-full rounded-xl sm:aspect-[3/4] md:aspect-[4/5]" />
-                                  <div className="flex flex-wrap gap-2">
-                                    <Skeleton className="h-5 w-16 rounded-full" />
-                                    <Skeleton className="h-5 w-20 rounded-full" />
+                    ) : (
+                      <div className="space-y-6">
+                        {savedPopclipIds.length > 0 ? (
+                          <div className="space-y-3">
+                            {savedPopclipsLoading ? (
+                              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
+                                {Array.from({ length: 6 }).map((_, idx) => (
+                                  <div
+                                    key={`saved-popclip-skeleton-${idx}`}
+                                    className="flex flex-col gap-2 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3"
+                                  >
+                                    <Skeleton className="aspect-[10/13] w-full rounded-xl sm:aspect-[3/4] md:aspect-[4/5]" />
+                                    <div className="flex flex-wrap gap-2">
+                                      <Skeleton className="h-5 w-16 rounded-full" />
+                                      <Skeleton className="h-5 w-20 rounded-full" />
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <Skeleton className="h-9 flex-1 rounded-full" />
+                                      <Skeleton className="h-9 flex-1 rounded-full" />
+                                    </div>
                                   </div>
-                                  <div className="flex gap-2">
-                                    <Skeleton className="h-9 flex-1 rounded-full" />
-                                    <Skeleton className="h-9 flex-1 rounded-full" />
-                                  </div>
-                                </div>
+                                ))}
+                              </div>
+                            ) : savedPopclipsError ? (
+                              <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
+                                {savedPopclipsError}
+                              </div>
+                            ) : filteredSavedPopclips.length === 0 ? (
+                              <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
+                                No hay PopClips guardados.
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
+                                {filteredSavedPopclips.map((item) => {
+                                  const savedPreview = savedPopclipPreviewMap.get(item.id);
+                                  const organizerItemId =
+                                    savedPreview && !savedPreview.id.startsWith("temp-popclip-")
+                                      ? savedPreview.id
+                                      : null;
+                                  const organizerCollectionId = organizerItemId
+                                    ? savedPreview?.collectionId ?? null
+                                    : null;
+                                  return (
+                                    <PopClipTile
+                                      key={item.id}
+                                      item={item}
+                                      onOpen={openSavedPopclip}
+                                      profileHref={`/c/${encodeURIComponent(item.creator.handle)}`}
+                                      chatHref={appendReturnTo(
+                                        `/go/${encodeURIComponent(item.creator.handle)}`,
+                                        router.asPath
+                                      )}
+                                      isFollowing={followingSet.has(item.creatorId)}
+                                      onFollowChange={handleFollowChange}
+                                      onFollowError={showToast}
+                                      isSaved={savedPopclipSet.has(item.id)}
+                                      onToggleSave={handleToggleSave}
+                                      onOrganize={openOrganizer}
+                                      organizerItemId={organizerItemId}
+                                      organizerCollectionId={organizerCollectionId}
+                                      hasLocationCenter={hasLocation}
+                                      onRequestLocation={handleRequestLocation}
+                                      onOpenCaption={openCaptionSheet}
+                                      onCopyLink={handleCopyLink}
+                                      onShare={handleShareLink}
+                                      onReport={handleReportClip}
+                                    />
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
+                        {filteredSavedOtherItems.length > 0 ? (
+                          <div className="space-y-3">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[color:var(--muted)]">
+                              Otros guardados
+                            </div>
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                              {filteredSavedOtherItems.map((item) => (
+                                <SavedItemCard
+                                  key={item.id}
+                                  item={item}
+                                  onMove={() => openOrganizer(item.id, item.collectionId ?? null)}
+                                  onRemove={() => void handleRemoveSavedItem(item.id)}
+                                  removing={savedItemRemovingId === item.id}
+                                />
                               ))}
                             </div>
-                          ) : savedPopclipsError ? (
-                            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
-                              {savedPopclipsError}
+                          </div>
+                        ) : null}
+                      </div>
+                    )
+                  ) : (
+                    <div className="space-y-4">
+                      {activeCollectionId ? (
+                        <div className="space-y-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveCollectionId(null);
+                              updateSavedQuery({ saved: true, view: "collections" });
+                            }}
+                            className="inline-flex items-center gap-2 text-xs font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                          >
+                            ← Colecciones
+                          </button>
+                          <div className="text-sm font-semibold text-[color:var(--text)]">
+                            {activeCollection?.name ?? "Colección"}
+                          </div>
+                          {collectionItemsLoading ? (
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                              {Array.from({ length: 3 }).map((_, idx) => (
+                                <Skeleton key={`collection-item-${idx}`} className="h-20 w-full rounded-2xl" />
+                              ))}
                             </div>
-                          ) : filteredSavedPopclips.length === 0 ? (
+                          ) : collectionItemsError ? (
                             <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
-                              No hay PopClips guardados.
+                              {collectionItemsError}
+                            </div>
+                          ) : collectionItems.length === 0 ? (
+                            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
+                              Esta colección está vacía.
                             </div>
                           ) : (
-                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
-                              {filteredSavedPopclips.map((item) => {
-                                const savedPreview = savedPopclipPreviewMap.get(item.id);
-                                const organizerItemId =
-                                  savedPreview && !savedPreview.id.startsWith("temp-popclip-")
-                                    ? savedPreview.id
-                                    : null;
-                                const organizerCollectionId = organizerItemId
-                                  ? savedPreview?.collectionId ?? null
-                                  : null;
-                                return (
-                                  <PopClipTile
-                                    key={item.id}
-                                    item={item}
-                                    onOpen={openSavedPopclip}
-                                    profileHref={`/c/${encodeURIComponent(item.creator.handle)}`}
-                                    chatHref={appendReturnTo(
-                                      `/go/${encodeURIComponent(item.creator.handle)}`,
-                                      router.asPath
-                                    )}
-                                    isFollowing={followingSet.has(item.creatorId)}
-                                    onFollowChange={handleFollowChange}
-                                    onFollowError={showToast}
-                                    isSaved={savedPopclipSet.has(item.id)}
-                                    onToggleSave={handleToggleSave}
-                                    onOrganize={openOrganizer}
-                                    organizerItemId={organizerItemId}
-                                    organizerCollectionId={organizerCollectionId}
-                                    hasLocationCenter={hasLocation}
-                                    onRequestLocation={handleRequestLocation}
-                                    onOpenCaption={openCaptionSheet}
-                                    onCopyLink={handleCopyLink}
-                                    onShare={handleShareLink}
-                                    onReport={handleReportClip}
-                                  />
-                                );
-                              })}
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                              {collectionItems.map((item) => (
+                                <SavedItemCard
+                                  key={item.id}
+                                  item={item}
+                                  onMove={() => openOrganizer(item.id, item.collectionId ?? null)}
+                                  onRemove={() => void handleRemoveSavedItem(item.id)}
+                                  removing={savedItemRemovingId === item.id}
+                                />
+                              ))}
                             </div>
                           )}
                         </div>
-                      ) : null}
-                      {filteredSavedOtherItems.length > 0 ? (
+                      ) : savedCollectionsLoading ? (
+                        <div className="space-y-2 text-xs text-[color:var(--muted)]">Cargando colecciones...</div>
+                      ) : savedCollectionsError ? (
+                        <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
+                          {savedCollectionsError}
+                        </div>
+                      ) : (
                         <div className="space-y-3">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[color:var(--muted)]">
-                            Otros guardados
-                          </div>
+                          {savedCollections.length === 0 ? (
+                            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
+                              Aún no tienes colecciones.
+                            </div>
+                          ) : null}
                           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            {filteredSavedOtherItems.map((item) => (
-                              <SavedItemCard
-                                key={item.id}
-                                item={item}
-                                onMove={() => openOrganizer(item.id, item.collectionId ?? null)}
-                                onRemove={() => void handleRemoveSavedItem(item.id)}
-                                removing={savedItemRemovingId === item.id}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  )
-                ) : (
-                  <div className="space-y-4">
-                    {activeCollectionId ? (
-                      <div className="space-y-3">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveCollectionId(null);
-                            updateSavedQuery({ saved: true, view: "collections" });
-                          }}
-                          className="inline-flex items-center gap-2 text-xs font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
-                        >
-                          ← Colecciones
-                        </button>
-                        <div className="text-sm font-semibold text-[color:var(--text)]">
-                          {activeCollection?.name ?? "Colección"}
-                        </div>
-                        {collectionItemsLoading ? (
-                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            {Array.from({ length: 3 }).map((_, idx) => (
-                              <Skeleton key={`collection-item-${idx}`} className="h-20 w-full rounded-2xl" />
-                            ))}
-                          </div>
-                        ) : collectionItemsError ? (
-                          <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
-                            {collectionItemsError}
-                          </div>
-                        ) : collectionItems.length === 0 ? (
-                          <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
-                            Esta colección está vacía.
-                          </div>
-                        ) : (
-                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            {collectionItems.map((item) => (
-                              <SavedItemCard
-                                key={item.id}
-                                item={item}
-                                onMove={() => openOrganizer(item.id, item.collectionId ?? null)}
-                                onRemove={() => void handleRemoveSavedItem(item.id)}
-                                removing={savedItemRemovingId === item.id}
-                              />
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ) : savedCollectionsLoading ? (
-                      <div className="space-y-2 text-xs text-[color:var(--muted)]">Cargando colecciones...</div>
-                    ) : savedCollectionsError ? (
-                      <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
-                        {savedCollectionsError}
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {savedCollections.length === 0 ? (
-                          <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
-                            Aún no tienes colecciones.
-                          </div>
-                        ) : null}
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                          <button
-                            type="button"
-                            onClick={() => setCreateCollectionOpen(true)}
-                            className="flex min-h-[160px] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 py-6 text-center text-xs font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
-                          >
-                            <span className="text-2xl font-semibold">+</span>
-                            <span>Nueva colección</span>
-                          </button>
-                          {savedCollections.map((collection) => {
-                            const cover = savedCollectionCoverMap.get(collection.id);
-                            const fallback =
-                              cover?.title?.trim()?.[0]?.toUpperCase() ||
-                              collection.name?.trim()?.[0]?.toUpperCase() ||
-                              "C";
-                            return (
-                              <div key={collection.id} className="relative">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setActiveCollectionId(collection.id);
-                                    updateSavedQuery({
-                                      saved: true,
-                                      view: "collections",
-                                      collectionId: collection.id,
-                                    });
-                                  }}
-                                  className="group flex w-full flex-col gap-2 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 text-left transition hover:bg-[color:var(--surface-1)]"
-                                >
-                                  <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]">
-                                    {cover?.thumbUrl ? (
-                                      <Image
-                                        src={normalizeImageSrc(cover.thumbUrl)}
-                                        alt={cover.title || collection.name}
-                                        width={320}
-                                        height={240}
-                                        className="h-full w-full object-cover"
-                                      />
-                                    ) : (
-                                      <div className="flex h-full w-full items-center justify-center text-lg font-semibold text-[color:var(--muted)]">
-                                        {fallback}
-                                      </div>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center justify-between gap-2">
-                                    <span className="truncate text-sm font-semibold text-[color:var(--text)]">
-                                      {collection.name}
-                                    </span>
-                                    <span className="text-xs text-[color:var(--muted)]">{collection.count}</span>
-                                  </div>
-                                </button>
-                                <div className="absolute right-3 top-3">
-                                  <ContextMenu
-                                    buttonAriaLabel="Acciones de colección"
-                                    buttonIcon="dots"
-                                    buttonClassName="h-8 w-8 bg-[color:var(--surface-1)]"
-                                    items={[
-                                      {
-                                        label: "Renombrar",
-                                        icon: "edit",
-                                        onClick: () => setRenameCollection({ id: collection.id, name: collection.name }),
-                                        disabled: deleteCollectionPending,
-                                      },
-                                      {
-                                        label: "Borrar",
-                                        icon: "alert",
-                                        danger: true,
-                                        onClick: () => {
-                                          setDeleteCollection({ id: collection.id, name: collection.name });
-                                          setDeleteCollectionError("");
+                            <button
+                              type="button"
+                              onClick={() => setCreateCollectionOpen(true)}
+                              className="flex min-h-[160px] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 py-6 text-center text-xs font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
+                            >
+                              <span className="text-2xl font-semibold">+</span>
+                              <span>Nueva colección</span>
+                            </button>
+                            {savedCollections.map((collection) => {
+                              const cover = savedCollectionCoverMap.get(collection.id);
+                              const fallback =
+                                cover?.title?.trim()?.[0]?.toUpperCase() ||
+                                collection.name?.trim()?.[0]?.toUpperCase() ||
+                                "C";
+                              return (
+                                <div key={collection.id} className="relative">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveCollectionId(collection.id);
+                                      updateSavedQuery({
+                                        saved: true,
+                                        view: "collections",
+                                        collectionId: collection.id,
+                                      });
+                                    }}
+                                    className="group flex w-full flex-col gap-2 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 text-left transition hover:bg-[color:var(--surface-1)]"
+                                  >
+                                    <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]">
+                                      {cover?.thumbUrl ? (
+                                        <Image
+                                          src={normalizeImageSrc(cover.thumbUrl)}
+                                          alt={cover.title || collection.name}
+                                          width={320}
+                                          height={240}
+                                          className="h-full w-full object-cover"
+                                        />
+                                      ) : (
+                                        <div className="flex h-full w-full items-center justify-center text-lg font-semibold text-[color:var(--muted)]">
+                                          {fallback}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="truncate text-sm font-semibold text-[color:var(--text)]">
+                                        {collection.name}
+                                      </span>
+                                      <span className="text-xs text-[color:var(--muted)]">{collection.count}</span>
+                                    </div>
+                                  </button>
+                                  <div className="absolute right-3 top-3">
+                                    <ContextMenu
+                                      buttonAriaLabel="Acciones de colección"
+                                      buttonIcon="dots"
+                                      buttonClassName="h-8 w-8 bg-[color:var(--surface-1)]"
+                                      items={[
+                                        {
+                                          label: "Renombrar",
+                                          icon: "edit",
+                                          onClick: () => setRenameCollection({ id: collection.id, name: collection.name }),
+                                          disabled: deleteCollectionPending,
                                         },
-                                        disabled: deleteCollectionPending,
-                                      },
-                                    ]}
-                                    menuClassName="min-w-[170px]"
-                                  />
+                                        {
+                                          label: "Borrar",
+                                          icon: "alert",
+                                          danger: true,
+                                          onClick: () => {
+                                            setDeleteCollection({ id: collection.id, name: collection.name });
+                                            setDeleteCollectionError("");
+                                          },
+                                          disabled: deleteCollectionPending,
+                                        },
+                                      ]}
+                                      menuClassName="min-w-[170px]"
+                                    />
+                                  </div>
                                 </div>
-                              </div>
-                            );
-                          })}
+                              );
+                            })}
+                          </div>
                         </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            ) : feedLoading && feedItems.length === 0 ? (
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
-                {Array.from({ length: FEED_SKELETON_COUNT }).map((_, idx) => (
-                  <div
-                    key={`feed-skeleton-${idx}`}
-                    className="flex flex-col gap-2 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3"
-                  >
-                    <Skeleton className="aspect-[10/13] w-full rounded-xl sm:aspect-[3/4] md:aspect-[4/5]" />
-                    <div className="flex flex-wrap gap-2">
-                      <Skeleton className="h-5 w-16 rounded-full" />
-                      <Skeleton className="h-5 w-20 rounded-full" />
+                      )}
                     </div>
-                    <div className="flex gap-2">
-                      <Skeleton className="h-9 flex-1 rounded-full" />
-                      <Skeleton className="h-9 flex-1 rounded-full" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : feedError ? (
-              <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
-                {feedError}
-              </div>
-            ) : showFollowingLoading ? (
-              <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
-                Cargando seguidos...
-              </div>
-            ) : showFollowingEmpty ? (
-              <div className="flex flex-col items-start gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-[color:var(--muted)]">
-                <div className="space-y-1">
-                  <span className="block text-sm">{followingEmptyCopy}</span>
-                  {typeof followingTotal === "number" && followingTotal === 0 ? (
-                    <span className="block text-xs">Sigue un creador y verás aquí sus clips.</span>
-                  ) : null}
+                  )}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setFollowingOnly(false)}
-                  className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
-                >
-                  Explorar
-                </button>
-              </div>
-            ) : showFeedEmpty ? (
-              <div className="flex flex-col items-start gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-[color:var(--muted)]">
-                <span className="text-sm">
-                  {hasLocation
-                    ? `No hay PopClips dentro de ${radiusKm} km de ${locationCenterLabel}.`
-                    : "Aún no hay PopClips. Prueba a quitar filtros o vuelve más tarde."}
-                </span>
-                {seedError ? <span className="text-[color:var(--danger)]">{seedError}</span> : null}
-                {hasLocation ? (
+              ) : feedLoading && feedItems.length === 0 ? (
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
+                  {Array.from({ length: FEED_SKELETON_COUNT }).map((_, idx) => (
+                    <div
+                      key={`feed-skeleton-${idx}`}
+                      className="flex flex-col gap-2 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3"
+                    >
+                      <Skeleton className="aspect-[10/13] w-full rounded-xl sm:aspect-[3/4] md:aspect-[4/5]" />
+                      <div className="flex flex-wrap gap-2">
+                        <Skeleton className="h-5 w-16 rounded-full" />
+                        <Skeleton className="h-5 w-20 rounded-full" />
+                      </div>
+                      <div className="flex gap-2">
+                        <Skeleton className="h-9 flex-1 rounded-full" />
+                        <Skeleton className="h-9 flex-1 rounded-full" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : feedError ? (
+                <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
+                  {feedError}
+                </div>
+              ) : showFollowingLoading ? (
+                <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
+                  Cargando seguidos...
+                </div>
+              ) : showFollowingEmpty ? (
+                <div className="flex flex-col items-start gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-[color:var(--muted)]">
+                  <div className="space-y-1">
+                    <span className="block text-sm">{followingEmptyCopy}</span>
+                    {typeof followingTotal === "number" && followingTotal === 0 ? (
+                      <span className="block text-xs">Sigue un creador y verás aquí sus clips.</span>
+                    ) : null}
+                  </div>
                   <button
                     type="button"
-                    onClick={handleClearLocation}
+                    onClick={() => setFollowingOnly(false)}
                     className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                   >
-                    Quitar ubicación
+                    Explorar
                   </button>
-                ) : null}
-                {isDev ? (
-                  <button
-                    type="button"
-                    onClick={handleSeedDemo}
-                    disabled={seedLoading}
-                    className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
-                  >
-                    {seedLoading ? "Generando..." : "Generar clips demo"}
-                  </button>
-                ) : null}
-              </div>
-            ) : (
-              <>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
-                  {filteredFeedItems.map((item) => {
-                    const savedPreview = savedPopclipPreviewMap.get(item.id);
-                    const organizerItemId =
-                      savedPreview && !savedPreview.id.startsWith("temp-popclip-")
-                        ? savedPreview.id
+                </div>
+              ) : showFeedEmpty ? (
+                <div className="flex flex-col items-start gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-[color:var(--muted)]">
+                  <span className="text-sm">
+                    {hasLocation
+                      ? `No hay PopClips dentro de ${radiusKm} km de ${locationCenterLabel}.`
+                      : "Aún no hay PopClips. Prueba a quitar filtros o vuelve más tarde."}
+                  </span>
+                  {seedError ? <span className="text-[color:var(--danger)]">{seedError}</span> : null}
+                  {hasLocation ? (
+                    <button
+                      type="button"
+                      onClick={handleClearLocation}
+                      className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                    >
+                      Quitar ubicación
+                    </button>
+                  ) : null}
+                  {isDev ? (
+                    <button
+                      type="button"
+                      onClick={handleSeedDemo}
+                      disabled={seedLoading}
+                      className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
+                    >
+                      {seedLoading ? "Generando..." : "Generar clips demo"}
+                    </button>
+                  ) : null}
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
+                    {filteredFeedItems.map((item) => {
+                      const savedPreview = savedPopclipPreviewMap.get(item.id);
+                      const organizerItemId =
+                        savedPreview && !savedPreview.id.startsWith("temp-popclip-")
+                          ? savedPreview.id
+                          : null;
+                      const organizerCollectionId = organizerItemId
+                        ? savedPreview?.collectionId ?? null
                         : null;
-                    const organizerCollectionId = organizerItemId
-                      ? savedPreview?.collectionId ?? null
-                      : null;
-                    return (
-                      <PopClipTile
-                        key={item.id}
-                        item={item}
-                        onOpen={openPopclip}
-                        profileHref={`/c/${encodeURIComponent(item.creator.handle)}`}
-                        chatHref={appendReturnTo(`/go/${encodeURIComponent(item.creator.handle)}`, router.asPath)}
-                        isFollowing={followingSet.has(item.creatorId)}
-                        onFollowChange={handleFollowChange}
-                        onFollowError={showToast}
-                        isSaved={savedPopclipSet.has(item.id)}
-                        onToggleSave={handleToggleSave}
-                        onOrganize={openOrganizer}
-                        organizerItemId={organizerItemId}
-                        organizerCollectionId={organizerCollectionId}
-                        hasLocationCenter={hasLocation}
-                        onRequestLocation={handleRequestLocation}
-                        onOpenCaption={openCaptionSheet}
-                        onCopyLink={handleCopyLink}
-                        onShare={handleShareLink}
-                        onReport={handleReportClip}
-                      />
-                    );
-                  })}
-                  {feedLoadingMore
-                    ? loadMoreSkeletons.map((_, idx) => (
+                      return (
+                        <PopClipTile
+                          key={item.id}
+                          item={item}
+                          onOpen={openPopclip}
+                          profileHref={`/c/${encodeURIComponent(item.creator.handle)}`}
+                          chatHref={appendReturnTo(`/go/${encodeURIComponent(item.creator.handle)}`, router.asPath)}
+                          isFollowing={followingSet.has(item.creatorId)}
+                          onFollowChange={handleFollowChange}
+                          onFollowError={showToast}
+                          isSaved={savedPopclipSet.has(item.id)}
+                          onToggleSave={handleToggleSave}
+                          onOrganize={openOrganizer}
+                          organizerItemId={organizerItemId}
+                          organizerCollectionId={organizerCollectionId}
+                          hasLocationCenter={hasLocation}
+                          onRequestLocation={handleRequestLocation}
+                          onOpenCaption={openCaptionSheet}
+                          onCopyLink={handleCopyLink}
+                          onShare={handleShareLink}
+                          onReport={handleReportClip}
+                        />
+                      );
+                    })}
+                    {feedLoadingMore
+                      ? loadMoreSkeletons.map((_, idx) => (
                         <div
                           key={`feed-more-skeleton-${idx}`}
                           className="flex flex-col gap-2 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3"
@@ -2895,23 +2902,23 @@ function ExploreContent() {
                           </div>
                         </div>
                       ))
-                    : null}
-                </div>
-                {feedCursor ? (
-                  <div className="mt-4 flex justify-center">
-                    <button
-                      type="button"
-                      onClick={loadMoreFeed}
-                      disabled={feedLoadingMore}
-                      className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
-                    >
-                      {feedLoadingMore ? "Cargando..." : "Cargar mas"}
-                    </button>
+                      : null}
                   </div>
-                ) : null}
-              </>
-            )}
-          </HomeSectionCard>
+                  {feedCursor ? (
+                    <div className="mt-4 flex justify-center">
+                      <button
+                        type="button"
+                        onClick={loadMoreFeed}
+                        disabled={feedLoadingMore}
+                        className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
+                      >
+                        {feedLoadingMore ? "Cargando..." : "Cargar mas"}
+                      </button>
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </HomeSectionCard>
           </div>
 
           {(showFeedEmpty || feedError) && !savedOnly && !followingOnly ? (
@@ -3163,6 +3170,32 @@ function pickQueryValue(value: string | string[] | undefined) {
   return value ?? "";
 }
 
+function hasQueryChanged(
+  current: Record<string, string | string[] | undefined>,
+  next: Record<string, string | string[] | undefined>
+) {
+  const currentKeys = Object.keys(current).filter((k) => current[k] !== undefined);
+  const nextKeys = Object.keys(next).filter((k) => next[k] !== undefined);
+  const allKeys = new Set([...currentKeys, ...nextKeys]);
+  for (const key of Array.from(allKeys)) {
+    const u = current[key];
+    const v = next[key];
+    if (u === v) continue;
+    if (
+      Array.isArray(u) &&
+      Array.isArray(v) &&
+      u.length === v.length &&
+      u.every((val, i) => val === v[i])
+    ) {
+      continue;
+    }
+    // undefined vs missing
+    if (u === undefined && v === undefined) continue;
+    return true;
+  }
+  return false;
+}
+
 
 function mergeUniqueFeedItems(items: PopClipFeedItem[]) {
   const seen = new Set<string>();
@@ -3273,7 +3306,7 @@ function SavedItemCard({
       className={clsx(
         "flex min-w-0 items-center gap-3 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3",
         isClickable &&
-          "cursor-pointer transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-2)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
+        "cursor-pointer transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-2)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
       )}
       role={isClickable ? "link" : undefined}
       tabIndex={isClickable ? 0 : undefined}
