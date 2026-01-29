@@ -933,8 +933,22 @@ export default function PublicCreatorByHandle({
     setLocationRadiusKm(resolveLocationRadiusKm(creatorLocation));
   };
 
-  const handleSaveLocation = async () => {
-    const ok = await persistLocation(locationDraft, locationRadiusKm, locationEnabled);
+  const handleSaveLocation = async (next: {
+    lat?: number | null;
+    lng?: number | null;
+    label?: string | null;
+    placeId?: string | null;
+    radiusKm: number;
+  }) => {
+    const payload = {
+      lat: typeof next.lat === "number" && Number.isFinite(next.lat) ? next.lat : null,
+      lng: typeof next.lng === "number" && Number.isFinite(next.lng) ? next.lng : null,
+      label: (next.label || "").trim(),
+      placeId: typeof next.placeId === "string" ? next.placeId : null,
+    };
+    setLocationDraft(payload);
+    setLocationRadiusKm(next.radiusKm);
+    const ok = await persistLocation(payload, next.radiusKm, locationEnabled);
     if (ok) {
       setLocationDialogOpen(false);
     }
@@ -2005,20 +2019,11 @@ export default function PublicCreatorByHandle({
           onClose={handleCloseLocationDialog}
           value={locationDraft}
           radiusKm={locationRadiusKm}
-          onChange={(next) =>
-            setLocationDraft({
-              lat: typeof next.lat === "number" && Number.isFinite(next.lat) ? next.lat : null,
-              lng: typeof next.lng === "number" && Number.isFinite(next.lng) ? next.lng : null,
-              label: (next.label || "").trim(),
-              placeId: typeof next.placeId === "string" ? next.placeId : null,
-            })
-          }
-          onRadiusChange={(nextKm) => setLocationRadiusKm(nextKm)}
+          onConfirm={handleSaveLocation}
           minRadiusKm={1}
           maxRadiusKm={25}
           stepKm={1}
           primaryActionLabel={locationSaving ? "Guardando..." : "Guardar ubicación"}
-          onPrimaryAction={handleSaveLocation}
           primaryActionDisabled={locationSaving}
           errorMessage={locationError}
         />

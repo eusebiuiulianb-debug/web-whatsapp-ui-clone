@@ -1,7 +1,5 @@
 import clsx from "clsx";
-import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { LocationPickerMap } from "./LocationPickerMap";
-import { LocationPickerDialog } from "../location/LocationPickerDialog";
+import { ReactNode, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { HomeFilters } from "../../lib/homeFilters";
 
 type Props = {
@@ -10,13 +8,15 @@ type Props = {
   onApply: (filters: HomeFilters) => void;
   onClear: () => void;
   onClose: () => void;
-  openLocationOnMount?: boolean;
+  onUseMyLocation: () => void;
+  onSearchCity: () => void;
+  onEditLocation: () => void;
+  onClearLocation: () => void;
 };
 
 const DEFAULT_KM = 25;
 const MIN_KM = 5;
 const MAX_KM = 200;
-const DEFAULT_LOCATION_CENTER = { lat: 40.4168, lng: -3.7038 };
 
 export function HomeFilterSheet({
   open,
@@ -24,99 +24,28 @@ export function HomeFilterSheet({
   onApply,
   onClear,
   onClose,
-  openLocationOnMount = false,
+  onUseMyLocation,
+  onSearchCity,
+  onEditLocation,
+  onClearLocation,
 }: Props) {
   const normalizedInitialFilters = useMemo(() => normalizeFilters(initialFilters), [initialFilters]);
   const [draft, setDraft] = useState<HomeFilters>(() => normalizeFilters(initialFilters));
-  const [locationOpen, setLocationOpen] = useState(false);
-  const [geoLoading, setGeoLoading] = useState(false);
-  const [geoError, setGeoError] = useState("");
-  const locationOpenOnceRef = useRef(false);
 
   useEffect(() => {
     if (!open) return;
     setDraft(normalizedInitialFilters);
   }, [open, normalizedInitialFilters]);
 
-  useEffect(() => {
-    if (!open) {
-      locationOpenOnceRef.current = false;
-      return;
-    }
-    if (!openLocationOnMount || locationOpenOnceRef.current) return;
-    locationOpenOnceRef.current = true;
-    setLocationOpen(true);
-  }, [open, openLocationOnMount]);
-
-  useEffect(() => {
-    if (!open) setLocationOpen(false);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) {
-      setGeoLoading(false);
-      setGeoError("");
-    }
-  }, [open]);
-
   const kmValue = normalizeKm(draft.km);
   const hasLocation = hasCoords(draft);
   const locationLabel = (draft.loc || "").trim();
   const locationDisplay = locationLabel || (hasLocation ? "Mi ubicación" : "Sin ubicación");
-  const locationSummary = hasLocation ? `${locationDisplay} (aprox.) · ${kmValue} km` : locationDisplay;
-  const previewCenter = useMemo(
-    () =>
-      hasLocation
-        ? { lat: draft.lat as number, lng: draft.lng as number }
-        : DEFAULT_LOCATION_CENTER,
-    [draft.lat, draft.lng, hasLocation]
-  );
-
-  useEffect(() => {
-    if (hasLocation && geoError) {
-      setGeoError("");
-    }
-  }, [geoError, hasLocation]);
-
-  const handleUseMyLocation = () => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) {
-      setGeoError("Ubicación no disponible en este navegador.");
-      return;
-    }
-    setGeoLoading(true);
-    setGeoError("");
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const { latitude, longitude } = position.coords;
-        let resolvedLabel = "Mi ubicación";
-        try {
-          const params = new URLSearchParams({
-            lat: String(latitude),
-            lng: String(longitude),
-            lang: "es",
-          });
-          const res = await fetch(`/api/geo/reverse?${params.toString()}`);
-          const data = await res.json().catch(() => null);
-          if (res.ok && data && typeof data.label === "string" && data.label.trim()) {
-            resolvedLabel = data.label.trim();
-          }
-        } catch (_err) {
-        }
-        setDraft((prev) => ({
-          ...prev,
-          lat: latitude,
-          lng: longitude,
-          loc: resolvedLabel,
-        }));
-        setGeoLoading(false);
-      },
-      () => {
-        setGeoError("No pudimos obtener tu ubicación. Busca una ciudad.");
-        setGeoLoading(false);
-      },
-      { enableHighAccuracy: false, maximumAge: 60000, timeout: 8000 }
-    );
-  };
+  const handleCallback =
+    (callback: () => void) => (event?: ReactMouseEvent<HTMLButtonElement>) => {
+      event?.stopPropagation();
+      callback();
+    };
 
   return (
     <BottomSheet open={open} onClose={onClose}>
@@ -170,78 +99,52 @@ export function HomeFilterSheet({
             <div>
               <div className="flex items-center justify-between">
                 <p className="text-xs font-semibold text-[color:var(--muted)]">Ubicación</p>
-                {hasLocation ? (
-                  <button
-                    type="button"
-                    onClick={() => setLocationOpen(true)}
-                    className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-[11px] font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
-                  >
-                    Editar
-                  </button>
-                ) : null}
               </div>
-              <p className="mt-1 text-xs text-[color:var(--muted)]">{locationSummary}</p>
               <div className="mt-3 space-y-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3">
-                <button
-                  type="button"
-                  onClick={() => setLocationOpen(true)}
-                  aria-label="Editar ubicación"
-                  className="group relative hidden w-full overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] text-left focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)] sm:block"
-                >
-                  <div className="h-32 w-full [&_.leaflet-control-attribution]:hidden">
-                    {hasLocation ? (
-                      <div className="pointer-events-none h-full w-full">
-                        <LocationPickerMap
-                          center={previewCenter}
-                          radiusKm={kmValue}
-                          onCenterChange={() => {}}
-                        />
-                      </div>
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-[11px] text-[color:var(--muted)]">
-                        Ubicación no configurada.
-                      </div>
-                    )}
-                  </div>
-                </button>
                 {hasLocation ? (
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                    <span className="font-semibold text-[color:var(--text)]">{locationDisplay} (aprox.)</span>
-                    <span className="text-[color:var(--muted)]">{kmValue} km</span>
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <span className="font-semibold text-[color:var(--text)]">{locationDisplay}</span>
+                      <span className="text-[color:var(--muted)]">{kmValue} km</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleCallback(onEditLocation)}
+                        className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCallback(onClearLocation)}
+                        className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                      >
+                        Quitar ubicación
+                      </button>
+                    </div>
                   </div>
                 ) : (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleUseMyLocation}
-                      disabled={geoLoading}
-                      className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {geoLoading ? "Cargando..." : "Usar mi ubicación"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setLocationOpen(true)}
-                      className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
-                    >
-                      Buscar ciudad
-                    </button>
+                  <div className="space-y-2">
+                    <p className="text-xs text-[color:var(--muted)]">Sin ubicación</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleCallback(onUseMyLocation)}
+                        className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                      >
+                        Usar mi ubicación
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCallback(onSearchCity)}
+                        className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+                      >
+                        Buscar ciudad
+                      </button>
+                    </div>
                   </div>
                 )}
-                {geoError ? <p className="text-[11px] text-[color:var(--danger)]">{geoError}</p> : null}
-                {hasLocation ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setDraft((prev) => ({ ...prev, lat: undefined, lng: undefined, loc: undefined }))
-                      }
-                      className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
-                    >
-                      Quitar ubicación
-                    </button>
-                  </div>
-                ) : null}
               </div>
             </div>
 
@@ -294,21 +197,6 @@ export function HomeFilterSheet({
           </div>
         </div>
       </div>
-
-      <LocationPickerDialog
-        open={locationOpen}
-        onClose={() => setLocationOpen(false)}
-        value={{ lat: draft.lat ?? null, lng: draft.lng ?? null, label: draft.loc ?? "" }}
-        radiusKm={kmValue}
-        onChange={(next) =>
-          setDraft((prev) => ({ ...prev, lat: next.lat ?? undefined, lng: next.lng ?? undefined, loc: next.label || undefined }))
-        }
-        onRadiusChange={(nextKm) => setDraft((prev) => ({ ...prev, km: nextKm }))}
-        minRadiusKm={MIN_KM}
-        maxRadiusKm={MAX_KM}
-        stepKm={5}
-        overlayHint="Elige una ciudad o usa tu ubicación"
-      />
     </BottomSheet>
   );
 }

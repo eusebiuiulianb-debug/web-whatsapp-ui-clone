@@ -15,6 +15,7 @@ import {
 import { HomeCategorySheet, type HomeCategory } from "../../components/home/HomeCategorySheet";
 import { HomeFilterSheet } from "../../components/home/HomeFilterSheet";
 import { HomeSectionCard } from "../../components/home/HomeSectionCard";
+import { LocationPickerDialog } from "../../components/location/LocationPickerDialog";
 import { DesktopMenuNav } from "../../components/navigation/DesktopMenuNav";
 import { PublicStickyHeader } from "../../components/navigation/PublicStickyHeader";
 import { PopClipViewer } from "../../components/popclips/PopClipViewer";
@@ -277,8 +278,9 @@ function ExploreContent() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [categorySheetOpen, setCategorySheetOpen] = useState(false);
-  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
-  const [openLocationPicker, setOpenLocationPicker] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [locationPickerOpen, setLocationPickerOpen] = useState(false);
+  const [locationPickerMode, setLocationPickerMode] = useState<"geo" | "search" | null>(null);
   const [feedItems, setFeedItems] = useState<PopClipFeedItem[]>([]);
   const [feedCursor, setFeedCursor] = useState<string | null>(null);
   const [feedLoading, setFeedLoading] = useState(false);
@@ -605,10 +607,41 @@ function ExploreContent() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
-  const openLocationFilters = useCallback(() => {
-    setOpenLocationPicker(true);
-    setFilterSheetOpen(true);
+  const openLocationPicker = useCallback(
+    (mode: "geo" | "search") => {
+      setLocationPickerMode(mode);
+      setFiltersOpen(false);
+      if (typeof window === "undefined") {
+        setLocationPickerOpen(true);
+        return;
+      }
+      window.requestAnimationFrame(() => {
+        setLocationPickerOpen(true);
+      });
+    },
+    []
+  );
+
+  const closeLocationPicker = useCallback(() => {
+    setLocationPickerOpen(false);
+    setLocationPickerMode(null);
   }, []);
+
+  const handleLocationConfirm = useCallback(
+    (next: { lat?: number | null; lng?: number | null; label?: string | null; radiusKm: number }) => {
+      const updated = {
+        ...filters,
+        lat: typeof next.lat === "number" ? next.lat : undefined,
+        lng: typeof next.lng === "number" ? next.lng : undefined,
+        loc: next.label ? next.label : undefined,
+        km: Number.isFinite(next.radiusKm) ? next.radiusKm : filters.km,
+      };
+      applyFilters(updated);
+      setLocationPickerOpen(false);
+      setLocationPickerMode(null);
+    },
+    [applyFilters, filters]
+  );
 
   useEffect(() => {
     if (!feedContext) return;
@@ -622,18 +655,18 @@ function ExploreContent() {
 
   useEffect(() => {
     if (!feedContext) return;
-    feedContext.setOnRequestLocation(openLocationFilters);
+    feedContext.setOnRequestLocation(() => openLocationPicker("search"));
     return () => {
       feedContext.setOnRequestLocation(undefined);
     };
-  }, [feedContext, openLocationFilters]);
+  }, [feedContext, openLocationPicker]);
 
   useEffect(() => {
     if (!router.isReady) return;
     const raw = router.query.openFilters;
     const value = Array.isArray(raw) ? raw[0] : raw;
     if (value !== "1" && value !== "true") return;
-    setFilterSheetOpen(true);
+    setFiltersOpen(true);
     const nextQuery = sanitizeQuery(router.query);
     delete nextQuery.openFilters;
     void router.replace({ pathname: "/explore", query: nextQuery }, undefined, { shallow: true });
@@ -839,7 +872,7 @@ function ExploreContent() {
       ) {
         return;
       }
-      if (filterSheetOpen || categorySheetOpen || captionSheetOpen) return;
+      if (filtersOpen || categorySheetOpen || captionSheetOpen) return;
       if (!event.metaKey && !event.ctrlKey) return;
       if (event.key.toLowerCase() !== "k") return;
       event.preventDefault();
@@ -847,7 +880,7 @@ function ExploreContent() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [captionSheetOpen, categorySheetOpen, filterSheetOpen, focusSearchInput]);
+  }, [captionSheetOpen, categorySheetOpen, filtersOpen, focusSearchInput]);
 
   useEffect(() => {
     const handleRouteChange = () => closeSearchPanel();
@@ -2027,7 +2060,7 @@ function ExploreContent() {
       <PillButton intent="secondary" size="sm" onClick={() => setCategorySheetOpen(true)}>
         Categorías
       </PillButton>
-      <PillButton intent="secondary" size="sm" onClick={() => setFilterSheetOpen(true)} className="gap-2">
+      <PillButton intent="secondary" size="sm" onClick={() => setFiltersOpen(true)} className="gap-2">
         <span>Filtros</span>
         {activeFilterCount > 0 ? (
           <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[color:rgba(var(--brand-rgb),0.2)] px-1.5 text-[11px] font-semibold text-[color:var(--text)]">
@@ -2524,7 +2557,7 @@ function ExploreContent() {
                                     organizerItemId={organizerItemId}
                                     organizerCollectionId={organizerCollectionId}
                                     hasLocationCenter={hasLocation}
-                                    onRequestLocation={openLocationFilters}
+                                    onRequestLocation={() => openLocationPicker("search")}
                                     onOpenCaption={openCaptionSheet}
                                     onCopyLink={handleCopyLink}
                                     onShare={handleShareLink}
@@ -2787,7 +2820,7 @@ function ExploreContent() {
                         organizerItemId={organizerItemId}
                         organizerCollectionId={organizerCollectionId}
                         hasLocationCenter={hasLocation}
-                        onRequestLocation={openLocationFilters}
+                        onRequestLocation={() => openLocationPicker("search")}
                         onOpenCaption={openCaptionSheet}
                         onCopyLink={handleCopyLink}
                         onShare={handleShareLink}
@@ -2988,15 +3021,39 @@ function ExploreContent() {
           }}
         />
         <HomeFilterSheet
-          open={filterSheetOpen}
+          open={filtersOpen}
           initialFilters={filters}
           onApply={applyFilters}
           onClear={clearQueryFilters}
           onClose={() => {
-            setFilterSheetOpen(false);
-            setOpenLocationPicker(false);
+            setFiltersOpen(false);
+            setLocationPickerOpen(false);
+            setLocationPickerMode(null);
           }}
-          openLocationOnMount={openLocationPicker}
+          onUseMyLocation={() => openLocationPicker("geo")}
+          onSearchCity={() => openLocationPicker("search")}
+          onEditLocation={() => openLocationPicker("search")}
+          onClearLocation={() => {
+            const updated = { ...filters, lat: undefined, lng: undefined, loc: undefined };
+            applyFilters(updated);
+          }}
+        />
+        <LocationPickerDialog
+          open={locationPickerOpen}
+          onClose={closeLocationPicker}
+          mode={locationPickerMode ?? undefined}
+          value={{
+            lat: filters.lat ?? null,
+            lng: filters.lng ?? null,
+            label: filters.loc ?? "",
+          }}
+          radiusKm={radiusKm}
+          minRadiusKm={MIN_FILTER_KM}
+          maxRadiusKm={MAX_FILTER_KM}
+          stepKm={5}
+          onConfirm={handleLocationConfirm}
+          primaryActionLabel="Usar ubicación"
+          overlayHint="Elige una ciudad o usa tu ubicación"
         />
         <PopClipViewer
           open={viewerOpen}
