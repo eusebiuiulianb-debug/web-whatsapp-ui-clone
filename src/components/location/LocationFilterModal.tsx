@@ -137,16 +137,12 @@ export function LocationFilterModal({
   const resolvedLabel = draft.label || (hasCoords ? "Mi ubicaciรณn" : "");
 
   const applyLocationToUrl = useCallback(
-    async ({ lat, lng, radiusKm, locLabel }: { lat: number; lng: number; radiusKm: number; locLabel: string }) => {
+    ({ lat, lng, radiusKm, locLabel }: { lat: number; lng: number; radiusKm: number; locLabel: string }) => {
       const params = buildExploreSearchParams(router.asPath || "", {
         lat,
         lng,
         radiusKm,
         locLabel,
-      });
-      const nextQuery: Record<string, string> = {};
-      params.forEach((value, key) => {
-        nextQuery[key] = value;
       });
 
       // Avoid router loop: construir nextUrl y comparar con router.asPath
@@ -160,36 +156,45 @@ export function LocationFilterModal({
       }
 
       if (DEBUG_LOC) {
-        console.log("[loc] applyLocationToUrl nextQuery", nextQuery);
         console.log("[loc] currentUrl", currentUrl, "→ nextUrl", nextUrl);
       }
 
-      await router.push({ pathname: router.pathname, query: nextQuery }, undefined, {
+      // Fire-and-forget: no await, solo .catch()
+      const nextQuery: Record<string, string> = {};
+      params.forEach((value, key) => {
+        nextQuery[key] = value;
+      });
+
+      router.replace({ pathname: router.pathname, query: nextQuery }, undefined, {
         shallow: true,
         scroll: false,
+      }).catch((err) => {
+        console.error("[LocationFilterModal] router.replace failed", err);
       });
     },
     [router]
   );
 
   const applyAndClose = useCallback(
-    async (payload: LocationApplyPayload) => {
+    (payload: LocationApplyPayload) => {
       setApplyPending(true);
-      try {
-        await applyLocationToUrl({
-          lat: payload.lat,
-          lng: payload.lng,
-          radiusKm: payload.radiusKm,
-          locLabel: payload.label,
-        });
-        onApply?.(payload);
-        onClose();
-      } catch (err) {
-        console.error("[LocationFilterModal] apply failed", err);
-        throw err;
-      } finally {
+      
+      // Fire-and-forget URL update
+      applyLocationToUrl({
+        lat: payload.lat,
+        lng: payload.lng,
+        radiusKm: payload.radiusKm,
+        locLabel: payload.label,
+      });
+      
+      // Callback y cierre INMEDIATO sin await
+      onApply?.(payload);
+      onClose();
+      
+      // Reset pending después de un breve delay para mostrar feedback
+      setTimeout(() => {
         setApplyPending(false);
-      }
+      }, 300);
     },
     [applyLocationToUrl, onApply, onClose]
   );
@@ -430,7 +435,7 @@ export function LocationFilterModal({
 
   const handleApply = () => {
     if (!hasCoords || draft.lat === null || draft.lng === null) return;
-    const label = resolvedLabel || "Ubicaciรณn aproximada";
+    const label = resolvedLabel || "Ubicación aproximada";
     if (DEBUG_LOC) {
       console.log("[loc] apply click", { lat: draft.lat, lng: draft.lng, radiusKm: draft.radiusKm, label });
     }
@@ -441,10 +446,15 @@ export function LocationFilterModal({
       radiusKm: normalizeRadius(draft.radiusKm, minRadiusKm, maxRadiusKm),
       placeId: draft.placeId ?? null,
     };
-    void applyAndClose(payload).catch((err) => {
-      console.error("[LocationFilterModal] apply failed", err);
-    });
+    applyAndClose(payload);
   };
+
+  // Resetear applyPending cuando el modal se cierra
+  useEffect(() => {
+    if (!open) {
+      setApplyPending(false);
+    }
+  }, [open]);
 
   if (!open) return null;
 
