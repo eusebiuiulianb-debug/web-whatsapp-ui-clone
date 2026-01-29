@@ -134,7 +134,7 @@ export function LocationFilterModal({
     return DEFAULT_LOCATION_CENTER;
   }, [draft.lat, draft.lng, hasCoords]);
 
-  const resolvedLabel = draft.label || (hasCoords ? "Mi ubicación" : "");
+  const resolvedLabel = draft.label || (hasCoords ? "Mi ubicaciรณn" : "");
 
   const applyLocationToUrl = useCallback(
     async ({ lat, lng, radiusKm, locLabel }: { lat: number; lng: number; radiusKm: number; locLabel: string }) => {
@@ -149,77 +149,47 @@ export function LocationFilterModal({
         nextQuery[key] = value;
       });
 
-      // Avoid loop: check if query actually changed
-      const currentQuery = router.query;
-      let hasChanges = false;
-      const allKeys = new Set([...Object.keys(nextQuery), ...Object.keys(currentQuery)]);
-
-      // We only care about location keys for this check, or we can check everything nextQuery touches
-      // The simplest safe check is: does nextQuery differ from currentQuery for the keys in nextQuery?
-      // And also ensuring we aren't removing keys that should stay?
-      // Actually `router.push({ query: nextQuery })` merges or replaces? Next.js router.push with object merges into pathname if not specified? 
-      // No, `router.push({ pathname, query })` replaces the query string with the new one constructed from `query`.
-      // The `buildExploreSearchParams` likely preserves existing params that aren't location related?
-      // Let's assume `buildExploreSearchParams` builds the FULL set of params we want.
-      // Let's simplified check: match strictly string values.
-
-      // Let's check specifically the keys we are touching.
-      // If we are just updating location, we want to know if the result URL is different.
-      // `router.asPath` vs built params.
-
+      // Avoid router loop: construir nextUrl y comparar con router.asPath
       const nextSearch = params.toString();
-      const currentSearch = router.asPath.split('?')[1] || "";
-      // This might be too strict due to ordering or extra params. 
-      // Let's try to be smart.
+      const nextUrl = nextSearch ? `${router.pathname}?${nextSearch}` : router.pathname;
+      const currentUrl = router.asPath;
 
-      for (const key in nextQuery) {
-        if (nextQuery[key] !== currentQuery[key]) {
-          hasChanges = true;
-          break;
-        }
-      }
-      // Also check if any key in current is missing in next (if nextQuery is supposed to be exhaustive for these params)
-      // `buildExploreSearchParams` takes router.asPath as base, so it should preserve others.
-      // So we mainly care if the NEW values are different from CURRENT values.
-
-      if (!hasChanges) {
-        // Optimization: check if any location key is PRESENT in current but missing in next (meaning we removed it?)
-        // But buildExploreSearchParams handles that. 
-        // If `hasChanges` is false, it means all keys in `nextQuery` match `router.query`.
-        // Is it possible `router.query` has a key that `nextQuery` set to undefined/null and we missed it?
-        // params.forEach only iterates present keys.
-
-        if (DEBUG_LOC) console.log("[loc] applyLocationToUrl skipped (no changes)");
+      if (nextUrl === currentUrl) {
+        if (DEBUG_LOC) console.log("[loc] applyLocationToUrl skipped (URL unchanged)", nextUrl);
         return;
       }
 
       if (DEBUG_LOC) {
         console.log("[loc] applyLocationToUrl nextQuery", nextQuery);
+        console.log("[loc] currentUrl", currentUrl, "→ nextUrl", nextUrl);
       }
 
-      setApplyPending(true);
-      try {
-        await router.push({ pathname: router.pathname, query: nextQuery }, undefined, {
-          shallow: true,
-          scroll: false,
-        });
-      } finally {
-        setApplyPending(false);
-      }
+      await router.push({ pathname: router.pathname, query: nextQuery }, undefined, {
+        shallow: true,
+        scroll: false,
+      });
     },
     [router]
   );
 
   const applyAndClose = useCallback(
     async (payload: LocationApplyPayload) => {
-      await applyLocationToUrl({
-        lat: payload.lat,
-        lng: payload.lng,
-        radiusKm: payload.radiusKm,
-        locLabel: payload.label,
-      });
-      onApply?.(payload);
-      onClose();
+      setApplyPending(true);
+      try {
+        await applyLocationToUrl({
+          lat: payload.lat,
+          lng: payload.lng,
+          radiusKm: payload.radiusKm,
+          locLabel: payload.label,
+        });
+        onApply?.(payload);
+        onClose();
+      } catch (err) {
+        console.error("[LocationFilterModal] apply failed", err);
+        throw err;
+      } finally {
+        setApplyPending(false);
+      }
     },
     [applyLocationToUrl, onApply, onClose]
   );
@@ -274,7 +244,7 @@ export function LocationFilterModal({
 
   const handleUseLocation = useCallback(() => {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
-      setGeoError("Ubicación no disponible en este navegador.");
+      setGeoError("Ubicaciรณn no disponible en este navegador.");
       return;
     }
     if (DEBUG_LOC) {
@@ -289,7 +259,7 @@ export function LocationFilterModal({
         async (position) => {
           if (geoLocateRequestRef.current !== requestId) return;
           const { latitude, longitude } = position.coords;
-          let resolved = "Tu ubicación";
+          let resolved = "Tu ubicaciรณn";
           let resolvedPlaceId = "";
           reverseAbortRef.current?.abort();
           const reverseController = new AbortController();
@@ -331,14 +301,14 @@ export function LocationFilterModal({
         (err) => {
           if (geoLocateRequestRef.current !== requestId) return;
           console.error("[LocationFilterModal] geolocation failed", err);
-          setGeoError("No pudimos obtener tu ubicación. Busca una ciudad.");
+          setGeoError("No pudimos obtener tu ubicaciรณn. Busca una ciudad.");
           setGeoLoading(false);
         },
         { enableHighAccuracy: false, maximumAge: 60000, timeout: 8000 }
       );
     } catch (err) {
       console.error("[LocationFilterModal] geolocation failed", err);
-      setGeoError("No pudimos obtener tu ubicación. Busca una ciudad.");
+      setGeoError("No pudimos obtener tu ubicaciรณn. Busca una ciudad.");
       setGeoLoading(false);
     }
   }, [maxRadiusKm, minRadiusKm]);
@@ -454,13 +424,13 @@ export function LocationFilterModal({
       ...prev,
       lat: next.lat,
       lng: next.lng,
-      label: prev.label || "Ubicación aproximada",
+      label: prev.label || "Ubicaciรณn aproximada",
     }));
   };
 
   const handleApply = () => {
     if (!hasCoords || draft.lat === null || draft.lng === null) return;
-    const label = resolvedLabel || "Ubicación aproximada";
+    const label = resolvedLabel || "Ubicaciรณn aproximada";
     if (DEBUG_LOC) {
       console.log("[loc] apply click", { lat: draft.lat, lng: draft.lng, radiusKm: draft.radiusKm, label });
     }
@@ -485,7 +455,7 @@ export function LocationFilterModal({
         <div
           role="dialog"
           aria-modal="true"
-          aria-label="Ubicación"
+          aria-label="Ubicaciรณn"
           onClick={(event) => event.stopPropagation()}
           className="flex w-full max-h-[90vh] flex-col overflow-hidden rounded-t-2xl border border-white/10 bg-[color:var(--surface-1)] shadow-2xl sm:w-[620px] sm:rounded-2xl"
         >
@@ -493,7 +463,7 @@ export function LocationFilterModal({
             <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-white/20 sm:hidden" />
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold text-[color:var(--text)]">Ubicación</p>
+                <p className="text-sm font-semibold text-[color:var(--text)]">Ubicaciรณn</p>
                 <p className="text-xs text-[color:var(--muted)]">
                   {resolvedLabel ? `Cerca de ${resolvedLabel}` : "Elige un centro aproximado"}
                 </p>
@@ -515,8 +485,8 @@ export function LocationFilterModal({
                   setGeoQuery(event.target.value);
                   setGeoError("");
                 }}
-                placeholder="¿Dónde?"
-                aria-label="Buscar ubicación"
+                placeholder="ยฟDรณnde?"
+                aria-label="Buscar ubicaciรณn"
                 className="h-10 w-full rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 text-sm text-[color:var(--text)]"
               />
               {geoResults.length > 0 ? (
@@ -599,7 +569,7 @@ export function LocationFilterModal({
                 disabled={geoLoading}
                 className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {geoLoading ? "Cargando..." : "Usar mi ubicación"}
+                {geoLoading ? "Cargando..." : "Usar mi ubicaciรณn"}
               </button>
               {geoError ? <span className="text-[11px] text-[color:var(--danger)]">{geoError}</span> : null}
             </div>
