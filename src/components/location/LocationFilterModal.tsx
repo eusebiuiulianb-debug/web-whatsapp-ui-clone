@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import type { Map as LeafletMap } from "leaflet";
 import { LocationPickerMap } from "./LocationPickerMap";
+import { buildExploreSearchParams } from "../../lib/geoQuery";
 
 type GeoSearchResult = {
   id: string;
@@ -50,18 +51,6 @@ const DEFAULT_RADIUS_KM = 25;
 const DEFAULT_MIN_RADIUS = 1;
 const DEFAULT_MAX_RADIUS = 200;
 const DEFAULT_STEP = 1;
-const LOCATION_QUERY_KEYS = [
-  "radiusKm",
-  "lat",
-  "lng",
-  "locLabel",
-  "r",
-  "km",
-  "loc",
-  "centerLat",
-  "centerLng",
-] as const;
-
 function safeInvalidate(map: LeafletMap) {
   try {
     const el = map.getContainer?.();
@@ -102,14 +91,7 @@ function buildDraft(
   };
 }
 
-function sanitizeQuery(query: Record<string, string | string[] | undefined>) {
-  const cleaned: Record<string, string | string[]> = {};
-  Object.entries(query).forEach(([key, value]) => {
-    if (value === undefined) return;
-    cleaned[key] = value;
-  });
-  return cleaned;
-}
+const DEBUG_LOC = process.env.NEXT_PUBLIC_DEBUG_LOC === "1";
 
 export function LocationFilterModal({
   open,
@@ -136,6 +118,8 @@ export function LocationFilterModal({
   const wasOpenRef = useRef(false);
   const modeHandledRef = useRef(false);
   const geoRequestRef = useRef(0);
+  const geoLocateRequestRef = useRef(0);
+  const reverseAbortRef = useRef<AbortController | null>(null);
 
   const hasCoords =
     typeof draft.lat === "number" &&
@@ -152,64 +136,55 @@ export function LocationFilterModal({
 
   const resolvedLabel = draft.label || (hasCoords ? "Mi ubicación" : "");
 
-  const applyDraft = useCallback(
-    (nextDraft: LocationApplyPayload) => {
-      const currentQuery = sanitizeQuery(router.query);
-      const nextQuery = { ...currentQuery };
-      LOCATION_QUERY_KEYS.forEach((key) => {
-        delete nextQuery[key];
+  const applyLocationToUrl = useCallback(
+    async ({ lat, lng, radiusKm, locLabel }: { lat: number; lng: number; radiusKm: number; locLabel: string }) => {
+      const params = buildExploreSearchParams(router.asPath || "", {
+        lat,
+        lng,
+        radiusKm,
+        locLabel,
       });
-      nextQuery.lat = String(nextDraft.lat);
-      nextQuery.lng = String(nextDraft.lng);
-      nextQuery.radiusKm = String(nextDraft.radiusKm);
-      if (nextDraft.label) {
-        nextQuery.locLabel = nextDraft.label;
-      }
+      const nextQuery: Record<string, string> = {};
+      params.forEach((value, key) => {
+        nextQuery[key] = value;
+      });
 
-      const currentEntries = Object.entries(currentQuery).map(([key, value]) => [
-        key,
-        Array.isArray(value) ? value[0] ?? "" : String(value ?? ""),
-      ]);
-      const nextEntries = Object.entries(nextQuery).map(([key, value]) => [
-        key,
-        Array.isArray(value) ? value[0] ?? "" : String(value ?? ""),
-      ]);
-      currentEntries.sort((a, b) => a[0].localeCompare(b[0]));
-      nextEntries.sort((a, b) => a[0].localeCompare(b[0]));
-      const isSameQuery = JSON.stringify(currentEntries) === JSON.stringify(nextEntries);
+      if (DEBUG_LOC) {
+        console.log("[loc] applyLocationToUrl nextQuery", nextQuery);
+      }
 
       setApplyPending(true);
-      if (isSameQuery) {
-        onApply?.(nextDraft);
-        onClose();
-        setApplyPending(false);
-        return;
-      }
-
       try {
-        const result = router.replace(
-          { pathname: router.pathname, query: nextQuery },
-          undefined,
-          { shallow: true, scroll: false }
-        );
-        onApply?.(nextDraft);
-        onClose();
-        if (result && typeof (result as Promise<boolean>).finally === "function") {
-          (result as Promise<boolean>).finally(() => setApplyPending(false));
-        } else {
-          setApplyPending(false);
-        }
-      } catch (err) {
-        console.error("[LocationFilterModal] apply failed", err);
+        await router.push({ pathname: router.pathname, query: nextQuery }, undefined, {
+          shallow: true,
+          scroll: false,
+        });
+      } finally {
         setApplyPending(false);
-        onClose();
       }
     },
-    [onApply, onClose, router]
+    [router]
+  );
+
+  const applyAndClose = useCallback(
+    async (payload: LocationApplyPayload) => {
+      await applyLocationToUrl({
+        lat: payload.lat,
+        lng: payload.lng,
+        radiusKm: payload.radiusKm,
+        locLabel: payload.label,
+      });
+      onApply?.(payload);
+      onClose();
+    },
+    [applyLocationToUrl, onApply, onClose]
   );
 
   useEffect(() => {
     if (open && !wasOpenRef.current) {
+      if (DEBUG_LOC) {
+        console.log("[loc] modal open");
+      }
       const nextDraft = buildDraft(initialValue, minRadiusKm, maxRadiusKm);
       setDraft(nextDraft);
       setGeoQuery(nextDraft.label || "");
@@ -221,8 +196,12 @@ export function LocationFilterModal({
       modeHandledRef.current = false;
     }
     if (!open) {
+      if (DEBUG_LOC && wasOpenRef.current) {
+        console.log("[loc] modal close");
+      }
       mapRef.current = null;
       setApplyPending(false);
+      setGeoLoading(false);
     }
     wasOpenRef.current = open;
   }, [initialValue, maxRadiusKm, minRadiusKm, open]);
@@ -254,55 +233,82 @@ export function LocationFilterModal({
       setGeoError("Ubicación no disponible en este navegador.");
       return;
     }
+    if (DEBUG_LOC) {
+      console.log("[loc] use my location");
+    }
     setGeoLoading(true);
     setGeoError("");
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const { latitude, longitude } = position.coords;
-        let resolved = "Cerca de ti";
-        let resolvedPlaceId = "";
-        try {
-          const params = new URLSearchParams({
-            lat: String(latitude),
-            lng: String(longitude),
-            lang: "es",
-          });
-          const res = await fetch(`/api/geo/reverse?${params.toString()}`, { cache: "no-store" });
-          const data = await res.json().catch(() => null);
-          if (res.ok && data && typeof data.label === "string" && data.label.trim()) {
-            resolved = data.label.trim();
-            resolvedPlaceId = typeof data.placeId === "string" ? data.placeId : "";
+    const requestId = geoLocateRequestRef.current + 1;
+    geoLocateRequestRef.current = requestId;
+    try {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          if (geoLocateRequestRef.current !== requestId) return;
+          const { latitude, longitude } = position.coords;
+          let resolved = "Tu ubicación";
+          let resolvedPlaceId = "";
+          reverseAbortRef.current?.abort();
+          const reverseController = new AbortController();
+          reverseAbortRef.current = reverseController;
+          try {
+            const params = new URLSearchParams({
+              lat: String(latitude),
+              lng: String(longitude),
+              lang: "es",
+            });
+            const res = await fetch(`/api/geo/reverse?${params.toString()}`, {
+              cache: "no-store",
+              signal: reverseController.signal,
+            });
+            const data = await res.json().catch(() => null);
+            if (res.ok && data && typeof data.label === "string" && data.label.trim()) {
+              resolved = data.label.trim();
+              resolvedPlaceId = typeof data.placeId === "string" ? data.placeId : "";
+            }
+          } catch (err) {
+            if (!(err instanceof DOMException && err.name === "AbortError")) {
+              console.error("[LocationFilterModal] reverse geocode failed", err);
+            }
           }
-        } catch (err) {
-          console.error("[LocationFilterModal] reverse geocode failed", err);
-        }
-        const resolvedRadiusKm = normalizeRadius(radiusRef.current, minRadiusKm, maxRadiusKm);
-        setDraft((prev) => ({
-          ...prev,
-          lat: latitude,
-          lng: longitude,
-          label: resolved,
-          placeId: resolvedPlaceId || null,
-          radiusKm: resolvedRadiusKm,
-        }));
-        setGeoQuery(resolved);
-        applyDraft({
-          lat: latitude,
-          lng: longitude,
-          label: resolved,
-          radiusKm: resolvedRadiusKm,
-          placeId: resolvedPlaceId || null,
-        });
-        setGeoLoading(false);
-      },
-      (err) => {
-        console.error("[LocationFilterModal] geolocation failed", err);
-        setGeoError("No pudimos obtener tu ubicación. Busca una ciudad.");
-        setGeoLoading(false);
-      },
-      { enableHighAccuracy: false, maximumAge: 60000, timeout: 8000 }
-    );
-  }, [applyDraft, maxRadiusKm, minRadiusKm]);
+          const resolvedRadiusKm = normalizeRadius(radiusRef.current, minRadiusKm, maxRadiusKm);
+          setDraft((prev) => ({
+            ...prev,
+            lat: latitude,
+            lng: longitude,
+            label: resolved,
+            placeId: resolvedPlaceId || null,
+            radiusKm: resolvedRadiusKm,
+          }));
+          setGeoQuery(resolved);
+          setGeoResults([]);
+          setGeoLoading(false);
+          const payload: LocationApplyPayload = {
+            lat: latitude,
+            lng: longitude,
+            label: resolved,
+            radiusKm: resolvedRadiusKm,
+            placeId: resolvedPlaceId || null,
+          };
+          try {
+            await applyAndClose(payload);
+          } catch (err) {
+            console.error("[LocationFilterModal] apply failed", err);
+          }
+        },
+        (err) => {
+          if (geoLocateRequestRef.current !== requestId) return;
+          console.error("[LocationFilterModal] geolocation failed", err);
+          setGeoError("No pudimos obtener tu ubicación. Busca una ciudad.");
+          setGeoLoading(false);
+        },
+        { enableHighAccuracy: false, maximumAge: 60000, timeout: 8000 }
+      );
+    } catch (err) {
+      console.error("[LocationFilterModal] geolocation failed", err);
+      setGeoError("No pudimos obtener tu ubicación. Busca una ciudad.");
+      setGeoLoading(false);
+    }
+  }, [applyAndClose, maxRadiusKm, minRadiusKm]);
 
   useEffect(() => {
     if (!open) return;
@@ -395,6 +401,9 @@ export function LocationFilterModal({
   }, [open, sessionId]);
 
   const handleSelectGeoResult = (result: GeoSearchResult) => {
+    if (DEBUG_LOC) {
+      console.log("[loc] select suggestion", result.display);
+    }
     setDraft((prev) => ({
       ...prev,
       lat: result.lat,
@@ -419,12 +428,18 @@ export function LocationFilterModal({
   const handleApply = () => {
     if (!hasCoords || draft.lat === null || draft.lng === null) return;
     const label = resolvedLabel || "Ubicación aproximada";
-    applyDraft({
+    if (DEBUG_LOC) {
+      console.log("[loc] apply click", { lat: draft.lat, lng: draft.lng, radiusKm: draft.radiusKm, label });
+    }
+    const payload: LocationApplyPayload = {
       lat: draft.lat,
       lng: draft.lng,
       label,
       radiusKm: normalizeRadius(draft.radiusKm, minRadiusKm, maxRadiusKm),
       placeId: draft.placeId ?? null,
+    };
+    void applyAndClose(payload).catch((err) => {
+      console.error("[LocationFilterModal] apply failed", err);
     });
   };
 
@@ -477,7 +492,10 @@ export function LocationFilterModal({
                     <button
                       key={result.id}
                       type="button"
-                      onClick={() => handleSelectGeoResult(result)}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        handleSelectGeoResult(result);
+                      }}
                       className="w-full px-3 py-2 text-left text-sm text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                     >
                       <span className="block text-sm font-semibold text-[color:var(--text)]">{result.display}</span>

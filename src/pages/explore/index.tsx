@@ -27,8 +27,8 @@ import { PillButton } from "../../components/ui/PillButton";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { VerifiedInlineBadge } from "../../components/ui/VerifiedInlineBadge";
 import { useRouter } from "next/router";
-import type { ParsedUrlQuery } from "querystring";
 import { countActiveFilters, parseHomeFilters, toHomeFiltersQuery, type HomeFilters } from "../../lib/homeFilters";
+import { buildExploreSearchParams, parseExploreLocationFromUrl } from "../../lib/geoQuery";
 import { subscribeCreatorStatusUpdates } from "../../lib/creatorStatusEvents";
 import { subscribeFollowUpdates, type FollowUpdateDetail } from "../../lib/followEvents";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
@@ -293,6 +293,7 @@ function ExploreContent() {
   const router = useRouter();
   const feedContext = usePopClipFeedContext();
   const isDev = process.env.NODE_ENV === "development";
+  const debugExplore = process.env.NEXT_PUBLIC_DEBUG_EXPLORE === "1";
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
@@ -356,6 +357,9 @@ function ExploreContent() {
   const packsRef = useRef<HTMLElement | null>(null);
   const suppressSearchOpenRef = useRef(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const openFiltersHandledRef = useRef(false);
+  const focusSearchHandledRef = useRef(false);
+  const modeQueryHandledRef = useRef(false);
   const [activeSearchIndex, setActiveSearchIndex] = useState(-1);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [showBackToTop, setShowBackToTop] = useState(false);
@@ -363,6 +367,7 @@ function ExploreContent() {
   const [recommendedCreators, setRecommendedCreators] = useState<RecommendedCreator[]>([]);
   const [creatorsLoading, setCreatorsLoading] = useState(false);
   const [creatorsError, setCreatorsError] = useState("");
+  const lastExploreDebugRef = useRef("");
 
   useEffect(() => {
     if (viewerOpen) return;
@@ -442,8 +447,12 @@ function ExploreContent() {
     const ids = savedItemsAll.filter((item) => item.type === "CREATOR").map((item) => item.entityId);
     return new Set(ids);
   }, [savedItemsAll]);
-  const centerLat = typeof filters.lat === "number" && Number.isFinite(filters.lat) ? filters.lat : null;
-  const centerLng = typeof filters.lng === "number" && Number.isFinite(filters.lng) ? filters.lng : null;
+  const exploreLocation = useMemo(
+    () => (router.isReady ? parseExploreLocationFromUrl(router.asPath) : null),
+    [router.asPath, router.isReady]
+  );
+  const centerLat = typeof exploreLocation?.lat === "number" ? exploreLocation.lat : null;
+  const centerLng = typeof exploreLocation?.lng === "number" ? exploreLocation.lng : null;
   const hasLocation = centerLat !== null && centerLng !== null;
   const radiusKm = useMemo(() => {
     const raw = Number.isFinite(filters.km ?? NaN) ? (filters.km as number) : DEFAULT_FILTER_KM;
@@ -454,15 +463,39 @@ function ExploreContent() {
   }, [filters.km]);
   const locationCenterLabel = useMemo(() => {
     if (!hasLocation) return "";
-    const label = (filters.loc || "").trim();
+    const label = (exploreLocation?.locLabel || filters.loc || "").trim();
     return label || "Mi ubicación";
-  }, [filters.loc, hasLocation]);
+  }, [exploreLocation?.locLabel, filters.loc, hasLocation]);
   const feedQueryString = useMemo(() => {
-    return buildExploreQueryParams(router.query).toString();
-  }, [router.query]);
+    if (!router.isReady) return "";
+    return buildExploreSearchParams(router.asPath, exploreLocation).toString();
+  }, [exploreLocation, router.asPath, router.isReady]);
   const searchTerm = search.trim();
   const hasSearchValue = search.length > 0;
   const showSearchPanel = isSearchOpen;
+
+  useEffect(() => {
+    if (!debugExplore || !router.isReady) return;
+    const feedParams = new URLSearchParams(feedQueryString);
+    feedParams.set("take", String(FEED_PAGE_SIZE));
+    const feedEndpoint = `/api/public/popclips/feed?${feedParams.toString()}`;
+    const creatorsParams = new URLSearchParams(feedQueryString);
+    creatorsParams.set("limit", "12");
+    const creatorsQuery = creatorsParams.toString();
+    const creatorsEndpoint = creatorsQuery
+      ? `/api/public/creators/recommended?${creatorsQuery}`
+      : "/api/public/creators/recommended";
+    const debugKey = `${router.asPath}|${feedEndpoint}|${creatorsEndpoint}`;
+    if (debugKey === lastExploreDebugRef.current) return;
+    lastExploreDebugRef.current = debugKey;
+    console.debug("[explore]", {
+      asPath: router.asPath,
+      query: router.query,
+      exploreLocation,
+    });
+    console.debug("[explore] feed", feedEndpoint);
+    console.debug("[explore] recommended", creatorsEndpoint);
+  }, [debugExplore, exploreLocation, feedQueryString, router.asPath, router.isReady, router.query]);
 
   useEffect(() => {
     return subscribeCreatorStatusUpdates(() => {
@@ -632,7 +665,12 @@ function ExploreContent() {
     if (!router.isReady) return;
     const raw = router.query.openFilters;
     const value = Array.isArray(raw) ? raw[0] : raw;
-    if (value !== "1" && value !== "true") return;
+    if (value !== "1" && value !== "true") {
+      openFiltersHandledRef.current = false;
+      return;
+    }
+    if (openFiltersHandledRef.current) return;
+    openFiltersHandledRef.current = true;
     setFiltersOpen(true);
     const nextQuery = sanitizeQuery(router.query);
     delete nextQuery.openFilters;
@@ -643,7 +681,12 @@ function ExploreContent() {
     if (!router.isReady) return;
     const raw = router.query.focusSearch;
     const value = Array.isArray(raw) ? raw[0] : raw;
-    if (value !== "1" && value !== "true") return;
+    if (value !== "1" && value !== "true") {
+      focusSearchHandledRef.current = false;
+      return;
+    }
+    if (focusSearchHandledRef.current) return;
+    focusSearchHandledRef.current = true;
     focusSearchInput({ select: true });
     const nextQuery = sanitizeQuery(router.query);
     delete nextQuery.focusSearch;
@@ -654,7 +697,12 @@ function ExploreContent() {
     if (!router.isReady) return;
     const raw = router.query.mode;
     const value = Array.isArray(raw) ? raw[0] : raw;
-    if (value !== "popclips") return;
+    if (value !== "popclips") {
+      modeQueryHandledRef.current = false;
+      return;
+    }
+    if (modeQueryHandledRef.current) return;
+    modeQueryHandledRef.current = true;
     setExploreIntent("popclips");
     setFollowingOnly(false);
     setSavedOnly(false);
@@ -1604,6 +1652,9 @@ function ExploreContent() {
     const params = new URLSearchParams(feedQueryString);
     params.set("take", String(FEED_PAGE_SIZE));
     const endpoint = `/api/public/popclips/feed?${params.toString()}`;
+    if (debugExplore) {
+      console.debug("[explore] fetch feed", endpoint);
+    }
     setFeedLoading(true);
     setFeedError("");
     setFeedItems([]);
@@ -1635,7 +1686,7 @@ function ExploreContent() {
         }
       });
     return () => controller.abort();
-  }, [feedQueryString, router.isReady, seedKey]);
+  }, [debugExplore, feedQueryString, router.isReady, seedKey]);
 
   const selectedCategory = useMemo(
     () => HOME_CATEGORIES.find((category) => category.id === selectedCategoryId) ?? null,
@@ -2123,6 +2174,9 @@ function ExploreContent() {
         );
         await refreshSavedItems({ silent: true });
       }
+      setFeedItems([]);
+      setFeedCursor(null);
+      setFeedError("");
       setSeedKey((prev) => prev + 1);
       showToast(count > 0 ? `Clips demo generados (${count}).` : "Clips demo listos.");
     } catch (_err) {
@@ -2220,6 +2274,9 @@ function ExploreContent() {
     const endpoint = queryString
       ? `/api/public/creators/recommended?${queryString}`
       : "/api/public/creators/recommended";
+    if (debugExplore) {
+      console.debug("[explore] fetch recommended", endpoint);
+    }
     const controller = new AbortController();
     setCreatorsLoading(true);
     setCreatorsError("");
@@ -2249,7 +2306,7 @@ function ExploreContent() {
         if (!controller.signal.aborted) setCreatorsLoading(false);
       });
     return () => controller.abort();
-  }, [feedQueryString, router.isReady, seedKey]);
+  }, [debugExplore, feedQueryString, router.isReady, seedKey]);
 
   return (
     <>
@@ -3106,28 +3163,6 @@ function pickQueryValue(value: string | string[] | undefined) {
   return value ?? "";
 }
 
-function buildExploreQueryParams(query: ParsedUrlQuery) {
-  const params = new URLSearchParams();
-  const avail = pickQueryValue(query.avail as string | string[] | undefined);
-  const r24 = pickQueryValue(query.r24 as string | string[] | undefined);
-  const vip = pickQueryValue(query.vip as string | string[] | undefined);
-  if (avail) params.set("avail", avail);
-  if (r24) params.set("r24", r24);
-  if (vip) params.set("vip", vip);
-
-  const lat = pickQueryValue((query.lat ?? query.centerLat) as string | string[] | undefined);
-  const lng = pickQueryValue((query.lng ?? query.centerLng) as string | string[] | undefined);
-  const radiusKm = pickQueryValue((query.radiusKm ?? query.r ?? query.km) as string | string[] | undefined);
-  const locLabel = pickQueryValue((query.locLabel ?? query.loc) as string | string[] | undefined);
-  if (lat && lng) {
-    params.set("lat", lat);
-    params.set("lng", lng);
-    if (radiusKm) params.set("radiusKm", radiusKm);
-    if (locLabel) params.set("locLabel", locLabel);
-  }
-
-  return params;
-}
 
 function mergeUniqueFeedItems(items: PopClipFeedItem[]) {
   const seen = new Set<string>();

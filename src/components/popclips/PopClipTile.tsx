@@ -257,39 +257,44 @@ export const PopClipTile = memo(function PopClipTile({
           <div className="flex min-w-0 flex-col gap-1">
             <Link
               href={profileHref}
+              legacyBehavior
+              passHref
               prefetch={false}
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={(event) => event.stopPropagation()}
-              onKeyDown={(event) => event.stopPropagation()}
-              aria-label={`Ver perfil de @${item.creator.handle}`}
-              className="inline-flex min-w-0 items-center gap-2 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1.5 text-[color:var(--text)] transition hover:bg-[color:var(--surface-3)]"
             >
-              <span className="inline-flex min-w-0 items-center gap-2">
-                <span className="h-7 w-7 shrink-0 overflow-hidden rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]">
-                  {showAvatar ? (
-                    <Image
-                      src={normalizeImageSrc(avatarSrc)}
-                      alt={item.creator.displayName}
-                      width={28}
-                      height={28}
-                      className="h-full w-full object-cover"
-                      onError={() => setAvatarFailed(true)}
-                    />
-                  ) : (
-                    <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-[color:var(--text)]">
-                      {creatorInitial}
-                    </span>
-                  )}
-                </span>
-                <span className="flex min-w-0 items-center gap-1">
-                  <span className="truncate text-xs font-semibold text-[color:var(--text)]">
-                    @{item.creator.handle}
+              <a
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+                aria-label={`Ver perfil de @${item.creator.handle}`}
+                className="inline-flex min-w-0 items-center gap-2 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1.5 text-[color:var(--text)] transition hover:bg-[color:var(--surface-3)]"
+              >
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <span className="h-7 w-7 shrink-0 overflow-hidden rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]">
+                    {showAvatar ? (
+                      <Image
+                        src={normalizeImageSrc(avatarSrc)}
+                        alt={item.creator.displayName}
+                        width={28}
+                        height={28}
+                        className="h-full w-full object-cover"
+                        onError={() => setAvatarFailed(true)}
+                      />
+                    ) : (
+                      <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-[color:var(--text)]">
+                        {creatorInitial}
+                      </span>
+                    )}
                   </span>
-                  {item.creator.isVerified ? (
-                    <VerifiedInlineBadge collapseAt="lg" className="shrink-0" />
-                  ) : null}
+                  <span className="flex min-w-0 items-center gap-1">
+                    <span className="truncate text-xs font-semibold text-[color:var(--text)]">
+                      @{item.creator.handle}
+                    </span>
+                    {item.creator.isVerified ? (
+                      <VerifiedInlineBadge collapseAt="lg" className="shrink-0" />
+                    ) : null}
+                  </span>
                 </span>
-              </span>
+              </a>
             </Link>
             {showLocationHint ? (
               showActivateLocation && onRequestLocation ? (
@@ -570,19 +575,20 @@ export const PopClipTile = memo(function PopClipTile({
           )}
         >
           <div className="flex">
-            <Link
-              href={chatHref}
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={(event) => event.stopPropagation()}
-              onKeyDown={(event) => event.stopPropagation()}
-              aria-label="Abrir chat"
-              title="Abrir chat"
-              className="flex w-full"
-            >
-              <span className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] px-4 text-[12px] font-semibold text-white shadow-sm transition hover:bg-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40">
-                <MessageCircle className="h-4 w-4" aria-hidden="true" />
-                Abrir chat
-              </span>
+            <Link href={chatHref} legacyBehavior passHref>
+              <a
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+                aria-label="Abrir chat"
+                title="Abrir chat"
+                className="flex w-full"
+              >
+                <span className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] px-4 text-[12px] font-semibold text-white shadow-sm transition hover:bg-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40">
+                  <MessageCircle className="h-4 w-4" aria-hidden="true" />
+                  Abrir chat
+                </span>
+              </a>
             </Link>
           </div>
         </div>

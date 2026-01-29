@@ -56,6 +56,7 @@ const MIN_FALLBACK_ITEMS = 6;
 const DISCOVERABLE_VISIBILITY = ["PUBLIC", "DISCOVERABLE"] as const;
 const DEFAULT_PREVIEW_LIMIT = 3;
 let hasLoggedFeedShape = false;
+const DEBUG_EXPLORE = process.env.NEXT_PUBLIC_DEBUG_EXPLORE === "1";
 
 const CLIP_SELECT = {
   id: true,
@@ -123,6 +124,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const avail = parseFlag(req.query.avail);
   const r24 = parseFlag(req.query.r24);
   const vip = parseFlag(req.query.vip);
+
+  if (process.env.NODE_ENV !== "production" && DEBUG_EXPLORE) {
+    console.debug("[api.popclips.feed]", {
+      lat,
+      lng,
+      radiusKm: km,
+      hasUserLocation,
+      avail,
+      r24,
+      vip,
+      take,
+      cursor,
+    });
+  }
 
   const baseWhere = {
     isActive: true,

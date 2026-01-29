@@ -58,6 +58,7 @@ const MAX_LIMIT = 20;
 const DEFAULT_KM = 25;
 const MIN_KM = 1;
 const MAX_KM = 200;
+const DEBUG_EXPLORE = process.env.NEXT_PUBLIC_DEBUG_EXPLORE === "1";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   res.setHeader("Cache-Control", "no-store");
@@ -78,6 +79,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const limit = Number.isFinite(limitRaw)
     ? Math.max(1, Math.min(MAX_LIMIT, Math.floor(limitRaw)))
     : DEFAULT_LIMIT;
+
+  if (process.env.NODE_ENV !== "production" && DEBUG_EXPLORE) {
+    console.debug("[api.creators.recommended]", {
+      lat: latRaw,
+      lng: lngRaw,
+      radiusKm: km,
+      hasUserLocation,
+      avail,
+      r24,
+      vip,
+      limit,
+    });
+  }
 
   try {
     const creators = await prisma.creator.findMany({
