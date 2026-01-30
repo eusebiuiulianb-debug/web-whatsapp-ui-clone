@@ -1,8 +1,9 @@
 import Head from "next/head";
 import Image from "next/image";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import clsx from "clsx";
-import { Bookmark, BookmarkCheck, Clock, Search, X } from "lucide-react";
+import { Clock, Search, X } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -13,7 +14,6 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { HomeCategorySheet, type HomeCategory } from "../../components/home/HomeCategorySheet";
-import { HomeFilterSheet } from "../../components/home/HomeFilterSheet";
 import { HomeSectionCard } from "../../components/home/HomeSectionCard";
 import { LocationFilterModal } from "../../components/location/LocationFilterModal";
 import { DesktopMenuNav } from "../../components/navigation/DesktopMenuNav";
@@ -22,19 +22,13 @@ import { PopClipViewer } from "../../components/popclips/PopClipViewer";
 import { PopClipTile, type PopClipTileItem } from "../../components/popclips/PopClipTile";
 import { PopClipFeedProvider, usePopClipFeedContext } from "../../components/popclips/PopClipFeedContext";
 import { IconGlyph } from "../../components/ui/IconGlyph";
-import { ContextMenu, type ContextMenuItem } from "../../components/ui/ContextMenu";
+import type { ContextMenuItem } from "../../components/ui/ContextMenu";
 import { PillButton } from "../../components/ui/PillButton";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { VerifiedInlineBadge } from "../../components/ui/VerifiedInlineBadge";
 import { useRouter } from "next/router";
-import { countActiveFilters, parseHomeFilters, toHomeFiltersQuery, type HomeFilters } from "../../lib/homeFilters";
-import { buildExploreSearchParams, parseExploreLocationFromUrl } from "../../lib/geoQuery";
 import { subscribeCreatorStatusUpdates } from "../../lib/creatorStatusEvents";
-import { subscribeFollowUpdates, type FollowUpdateDetail } from "../../lib/followEvents";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
-import { SavedOrganizerSheet } from "../../components/saved/SavedOrganizerSheet";
-import { SavedCollectionCreateSheet } from "../../components/saved/SavedCollectionCreateSheet";
-import { SavedCollectionRenameSheet } from "../../components/saved/SavedCollectionRenameSheet";
 
 const FEED_PAGE_SIZE = 24;
 const FEED_SKELETON_COUNT = 12;
@@ -97,27 +91,21 @@ type PopClipFeedItem = {
   distanceKm?: number | null;
 };
 
-type SavedItemType = "POPCLIP" | "PACK" | "CREATOR";
-
-type SavedPreviewItem = {
-  id: string;
-  type: SavedItemType;
-  entityId: string;
-  collectionId: string | null;
-  createdAt: string;
-  title: string;
-  subtitle: string | null;
-  thumbUrl: string | null;
-  href: string | null;
+type ExplorePlace = {
+  label: string;
+  lat: number;
+  lng: number;
+  placeId?: string | null;
 };
 
-type SavedCollection = {
-  id: string;
-  name: string;
-  count: number;
+type ExploreFilters = {
+  location?: {
+    place: ExplorePlace;
+    radiusKm: number;
+  };
 };
 
-type ExploreIntent = "all" | "saved" | "popclips" | "packs" | "chat";
+type ExploreIntent = "popclips" | "packs" | "chat";
 
 type SearchActionKind = "query" | "recent" | "shortcut" | "category";
 
@@ -130,39 +118,25 @@ type SearchAction = {
   onSelect: () => void;
 };
 
-const FILTER_QUERY_KEYS = [
-  "radiusKm",
-  "lat",
-  "lng",
-  "locLabel",
-  "avail",
-  "r24",
-  "vip",
-  "r",
-  "km",
-  "loc",
-  "centerLat",
-  "centerLng",
-] as const;
-
-const LOCATION_QUERY_KEYS = [
-  "radiusKm",
-  "lat",
-  "lng",
-  "locLabel",
-  "r",
-  "km",
-  "loc",
-  "centerLat",
-  "centerLng",
-] as const;
-const FOLLOWING_QUERY_KEY = "following";
-const CATEGORY_QUERY_KEY = "cat";
 const DEFAULT_FILTER_KM = 25;
 const MIN_FILTER_KM = 1;
 const MAX_FILTER_KM = 200;
 const RECENT_SEARCH_KEY = "ip_recent_searches_v1";
 const MAX_RECENT_SEARCHES = 6;
+
+function cloneExploreFilters(filters: ExploreFilters): ExploreFilters {
+  if (!filters.location?.place) return {};
+  const place = filters.location.place;
+  const radiusKm = Number.isFinite(filters.location.radiusKm ?? NaN)
+    ? filters.location.radiusKm
+    : DEFAULT_FILTER_KM;
+  return {
+    location: {
+      place: { ...place },
+      radiusKm,
+    },
+  };
+}
 
 const readRecentSearches = () => {
   if (typeof window === "undefined") return [];
@@ -281,10 +255,12 @@ const HOW_IT_WORKS_STEPS = [
   },
 ];
 
+const ExploreContentNoSSR = dynamic(() => Promise.resolve(ExploreContent), { ssr: false });
+
 export default function Explore() {
   return (
     <PopClipFeedProvider>
-      <ExploreContent />
+      <ExploreContentNoSSR />
     </PopClipFeedProvider>
   );
 }
@@ -299,8 +275,8 @@ function ExploreContent() {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [categorySheetOpen, setCategorySheetOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [locationPickerOpen, setLocationPickerOpen] = useState(false);
-  const [locationPickerMode, setLocationPickerMode] = useState<"geo" | "search" | null>(null);
+  const [appliedFilters, setAppliedFilters] = useState<ExploreFilters>({});
+  const [draftFilters, setDraftFilters] = useState<ExploreFilters>({});
   const [feedItems, setFeedItems] = useState<PopClipFeedItem[]>([]);
   const [feedCursor, setFeedCursor] = useState<string | null>(null);
   const [feedLoading, setFeedLoading] = useState(false);
@@ -312,33 +288,6 @@ function ExploreContent() {
   const [seedLoading, setSeedLoading] = useState(false);
   const [seedError, setSeedError] = useState("");
   const [seedKey, setSeedKey] = useState(0);
-  const [savedItemsAll, setSavedItemsAll] = useState<SavedPreviewItem[]>([]);
-  const [savedItemsLoading, setSavedItemsLoading] = useState(false);
-  const [savedItemsError, setSavedItemsError] = useState("");
-  const [savedPopclips, setSavedPopclips] = useState<PopClipFeedItem[]>([]);
-  const [savedPopclipsLoading, setSavedPopclipsLoading] = useState(false);
-  const [savedPopclipsError, setSavedPopclipsError] = useState("");
-  const [savedCollections, setSavedCollections] = useState<SavedCollection[]>([]);
-  const [savedCollectionsLoading, setSavedCollectionsLoading] = useState(false);
-  const [savedCollectionsError, setSavedCollectionsError] = useState("");
-  const [createCollectionOpen, setCreateCollectionOpen] = useState(false);
-  const [renameCollection, setRenameCollection] = useState<{ id: string; name: string } | null>(null);
-  const [deleteCollection, setDeleteCollection] = useState<{ id: string; name: string } | null>(null);
-  const [deleteCollectionPending, setDeleteCollectionPending] = useState(false);
-  const [deleteCollectionError, setDeleteCollectionError] = useState("");
-  const [savedView, setSavedView] = useState<"all" | "collections">("all");
-  const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
-  const [collectionItems, setCollectionItems] = useState<SavedPreviewItem[]>([]);
-  const [collectionItemsLoading, setCollectionItemsLoading] = useState(false);
-  const [collectionItemsError, setCollectionItemsError] = useState("");
-  const [savedItemRemovingId, setSavedItemRemovingId] = useState<string | null>(null);
-  const [followingTotal, setFollowingTotal] = useState<number | null>(null);
-  const [followingCreatorIds, setFollowingCreatorIds] = useState<string[]>([]);
-  const [followingLoading, setFollowingLoading] = useState(false);
-  const [followingOnly, setFollowingOnly] = useState(false);
-  const [savedOnly, setSavedOnly] = useState(false);
-  const [exploreIntent, setExploreIntent] = useState<ExploreIntent>("all");
-  const [hydrated, setHydrated] = useState(false);
   const [captionSheetClip, setCaptionSheetClip] = useState<PopClipTileItem | null>(null);
   const [captionSheetOpen, setCaptionSheetOpen] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
@@ -346,20 +295,12 @@ function ExploreContent() {
   const [viewerIndex, setViewerIndex] = useState(-1);
   const [toast, setToast] = useState<{ message: string; actionLabel?: string; onAction?: () => void } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const savedQueryRef = useRef(false);
-  const followingQueryRef = useRef(false);
-  const [organizerOpen, setOrganizerOpen] = useState(false);
-  const [organizerItemId, setOrganizerItemId] = useState<string | null>(null);
-  const [organizerCollectionId, setOrganizerCollectionId] = useState<string | null>(null);
   const heroSearchWrapperRef = useRef<HTMLDivElement | null>(null);
   const heroSearchInputRef = useRef<HTMLInputElement | null>(null);
   const popclipsRef = useRef<HTMLDivElement | null>(null);
   const packsRef = useRef<HTMLElement | null>(null);
   const suppressSearchOpenRef = useRef(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const openFiltersHandledRef = useRef(false);
-  const focusSearchHandledRef = useRef(false);
-  const modeQueryHandledRef = useRef(false);
   const [activeSearchIndex, setActiveSearchIndex] = useState(-1);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [showBackToTop, setShowBackToTop] = useState(false);
@@ -380,122 +321,71 @@ function ExploreContent() {
     feedContext?.clear();
   }, [feedContext, viewerOpen]);
 
-  const filters = useMemo(
-    () =>
-      parseHomeFilters({
-        radiusKm: router.query.radiusKm,
-        r: router.query.r,
-        km: router.query.km,
-        lat: router.query.lat,
-        lng: router.query.lng,
-        locLabel: router.query.locLabel,
-        loc: router.query.loc,
-        avail: router.query.avail,
-        r24: router.query.r24,
-        vip: router.query.vip,
-      }),
-    [
-      router.query.avail,
-      router.query.radiusKm,
-      router.query.r,
-      router.query.km,
-      router.query.lat,
-      router.query.lng,
-      router.query.locLabel,
-      router.query.loc,
-      router.query.r24,
-      router.query.vip,
-    ]
-  );
-  const activeFilterCount = useMemo(() => countActiveFilters(filters), [filters]);
-  const filterQueryString = useMemo(() => {
-    const params = new URLSearchParams(toHomeFiltersQuery(filters));
+  const apiQuery = useMemo(() => {
+    const params = new URLSearchParams();
+    const location = appliedFilters.location;
+    if (location?.place) {
+      const lat = Number(location.place.lat);
+      const lng = Number(location.place.lng);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        params.set("lat", String(lat));
+        params.set("lng", String(lng));
+        if (Number.isFinite(location.radiusKm ?? NaN)) {
+          params.set("radiusKm", String(Math.round(location.radiusKm)));
+        }
+      }
+    }
     return params.toString();
-  }, [filters]);
-  const savedPopclipIds = useMemo(
-    () => savedItemsAll.filter((item) => item.type === "POPCLIP").map((item) => item.entityId),
-    [savedItemsAll]
-  );
-  const savedPopclipSet = useMemo(() => new Set(savedPopclipIds), [savedPopclipIds]);
-  const followingSet = useMemo(() => new Set(followingCreatorIds), [followingCreatorIds]);
-  const savedPopclipPreviewMap = useMemo(() => {
-    const map = new Map<string, SavedPreviewItem>();
-    savedItemsAll.forEach((item) => {
-      if (item.type !== "POPCLIP") return;
-      map.set(item.entityId, item);
-    });
-    return map;
-  }, [savedItemsAll]);
-  const savedOtherItems = useMemo(
-    () => savedItemsAll.filter((item) => item.type !== "POPCLIP"),
-    [savedItemsAll]
-  );
-  const savedCollectionCoverMap = useMemo(() => {
-    const map = new Map<string, SavedPreviewItem>();
-    savedItemsAll.forEach((item) => {
-      if (!item.collectionId) return;
-      if (map.has(item.collectionId)) return;
-      map.set(item.collectionId, item);
-    });
-    return map;
-  }, [savedItemsAll]);
-  const activeCollection = useMemo(
-    () => savedCollections.find((collection) => collection.id === activeCollectionId) ?? null,
-    [activeCollectionId, savedCollections]
-  );
-  const savedCreatorSet = useMemo(() => {
-    const ids = savedItemsAll.filter((item) => item.type === "CREATOR").map((item) => item.entityId);
-    return new Set(ids);
-  }, [savedItemsAll]);
-  const exploreLocation = useMemo(
-    () => (router.isReady ? parseExploreLocationFromUrl(router.asPath) : null),
-    [router.asPath, router.isReady]
-  );
-  const centerLat = typeof exploreLocation?.lat === "number" ? exploreLocation.lat : null;
-  const centerLng = typeof exploreLocation?.lng === "number" ? exploreLocation.lng : null;
-  const hasLocation = centerLat !== null && centerLng !== null;
+  }, [appliedFilters]);
+  const activeFilterCount = appliedFilters.location?.place ? 1 : 0;
+  const referenceLocation = useMemo(() => {
+    const location = appliedFilters.location;
+    if (!location?.place) return null;
+    const lat = Number(location.place.lat);
+    const lng = Number(location.place.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return { lat, lng };
+  }, [appliedFilters]);
+  const hasLocation = Boolean(referenceLocation);
   const radiusKm = useMemo(() => {
-    const raw = Number.isFinite(filters.km ?? NaN) ? (filters.km as number) : DEFAULT_FILTER_KM;
+    const raw = Number.isFinite(appliedFilters.location?.radiusKm ?? NaN)
+      ? (appliedFilters.location?.radiusKm as number)
+      : DEFAULT_FILTER_KM;
     const rounded = Math.round(raw);
     if (rounded < MIN_FILTER_KM) return MIN_FILTER_KM;
     if (rounded > MAX_FILTER_KM) return MAX_FILTER_KM;
     return rounded;
-  }, [filters.km]);
+  }, [appliedFilters]);
   const locationCenterLabel = useMemo(() => {
     if (!hasLocation) return "";
-    const label = (exploreLocation?.locLabel || filters.loc || "").trim();
+    const label = appliedFilters.location?.place?.label?.trim() || "";
     return label || "Mi ubicación";
-  }, [exploreLocation?.locLabel, filters.loc, hasLocation]);
-  const feedQueryString = useMemo(() => {
-    if (!router.isReady) return "";
-    return buildExploreSearchParams(router.asPath, exploreLocation).toString();
-  }, [exploreLocation, router.asPath, router.isReady]);
+  }, [appliedFilters, hasLocation]);
   const searchTerm = search.trim();
   const hasSearchValue = search.length > 0;
   const showSearchPanel = isSearchOpen;
+  const returnToPath = "/explore";
 
   useEffect(() => {
-    if (!debugExplore || !router.isReady) return;
-    const feedParams = new URLSearchParams(feedQueryString);
+    if (!debugExplore) return;
+    const feedParams = new URLSearchParams(apiQuery);
     feedParams.set("take", String(FEED_PAGE_SIZE));
     const feedEndpoint = `/api/public/popclips/feed?${feedParams.toString()}`;
-    const creatorsParams = new URLSearchParams(feedQueryString);
+    const creatorsParams = new URLSearchParams(apiQuery);
     creatorsParams.set("limit", "12");
     const creatorsQuery = creatorsParams.toString();
     const creatorsEndpoint = creatorsQuery
       ? `/api/public/creators/recommended?${creatorsQuery}`
       : "/api/public/creators/recommended";
-    const debugKey = `${router.asPath}|${feedEndpoint}|${creatorsEndpoint}`;
+    const debugKey = `${apiQuery}|${feedEndpoint}|${creatorsEndpoint}`;
     if (debugKey === lastExploreDebugRef.current) return;
     lastExploreDebugRef.current = debugKey;
     console.debug("[explore]", {
-      asPath: router.asPath,
-      query: router.query,
-      exploreLocation,
+      filters: appliedFilters,
     });
     console.debug("[explore] feed", feedEndpoint);
     console.debug("[explore] recommended", creatorsEndpoint);
-  }, [debugExplore, exploreLocation, feedQueryString, router.asPath, router.isReady, router.query]);
+  }, [apiQuery, appliedFilters, debugExplore]);
 
   useEffect(() => {
     return subscribeCreatorStatusUpdates(() => {
@@ -521,105 +411,48 @@ function ExploreContent() {
     []
   );
 
-  const applyFilters = useCallback(
-    (nextFilters: HomeFilters) => {
-      const baseQuery = sanitizeQuery(router.query);
-      FILTER_QUERY_KEYS.forEach((key) => {
-        delete baseQuery[key];
-      });
-      const mergedQuery = { ...baseQuery, ...toHomeFiltersQuery(nextFilters) };
-      if (!hasQueryChanged(router.query, mergedQuery)) return;
-      void router.push({ pathname: router.pathname, query: mergedQuery }, undefined, { shallow: true });
-    },
-    [router]
-  );
+  const openFilters = useCallback(() => {
+    setDraftFilters(cloneExploreFilters(appliedFilters));
+    setFiltersOpen(true);
+  }, [appliedFilters]);
 
-
-  const clearQueryFilters = useCallback(() => {
-    const baseQuery = sanitizeQuery(router.query);
-    FILTER_QUERY_KEYS.forEach((key) => {
-      delete baseQuery[key];
-    });
-    if (!hasQueryChanged(router.query, baseQuery)) return;
-    void router.push({ pathname: router.pathname, query: baseQuery }, undefined, { shallow: true });
-  }, [router]);
-
-  const updateSavedQuery = useCallback(
-    (options: { saved: boolean; view?: "all" | "collections"; collectionId?: string | null }) => {
-      const baseQuery = sanitizeQuery(router.query);
-      if (!options.saved) {
-        delete baseQuery.saved;
-        delete baseQuery.view;
-        delete baseQuery.collectionId;
-        delete baseQuery[FOLLOWING_QUERY_KEY];
-        if (!hasQueryChanged(router.query, baseQuery)) return;
-        void router.push({ pathname: "/explore", query: baseQuery }, undefined, { shallow: true });
+  const handleApplyLocation = useCallback(
+    (payload: { lat: number; lng: number; label: string; radiusKm: number; placeId?: string | null } | null) => {
+      if (!payload) {
+        setAppliedFilters((prev) => (prev.location ? { ...prev, location: undefined } : prev));
+        setDraftFilters((prev) => (prev.location ? { ...prev, location: undefined } : prev));
         return;
       }
-      baseQuery.saved = "1";
-      delete baseQuery[FOLLOWING_QUERY_KEY];
-      if (options.view === "collections" || options.collectionId) {
-        baseQuery.view = "collections";
-      } else {
-        delete baseQuery.view;
-      }
-      if (options.collectionId) {
-        baseQuery.collectionId = options.collectionId;
-      } else {
-        delete baseQuery.collectionId;
-      }
-      if (!hasQueryChanged(router.query, baseQuery)) return;
-      void router.push({ pathname: "/explore", query: baseQuery }, undefined, { shallow: true });
+      const nextFilters: ExploreFilters = {
+        location: {
+          place: {
+            label: payload.label,
+            lat: payload.lat,
+            lng: payload.lng,
+            placeId: payload.placeId ?? null,
+          },
+          radiusKm: payload.radiusKm,
+        },
+      };
+      setAppliedFilters(nextFilters);
+      setDraftFilters(cloneExploreFilters(nextFilters));
     },
-    [router]
+    []
   );
 
-  const updateFollowingQuery = useCallback(
-    (enabled: boolean) => {
-      const baseQuery = sanitizeQuery(router.query);
-      if (!enabled) {
-        delete baseQuery[FOLLOWING_QUERY_KEY];
-        if (!hasQueryChanged(router.query, baseQuery)) return;
-        void router.push({ pathname: "/explore", query: baseQuery }, undefined, { shallow: true });
-        return;
-      }
-      baseQuery[FOLLOWING_QUERY_KEY] = "1";
-      delete baseQuery.view;
-      delete baseQuery.collectionId;
-      if (!hasQueryChanged(router.query, baseQuery)) return;
-      void router.push({ pathname: "/explore", query: baseQuery }, undefined, { shallow: true });
-    },
-    [router]
-  );
-
-  const updateCategoryQuery = useCallback(
-    (categoryId: string | null) => {
-      const baseQuery = sanitizeQuery(router.query);
-      if (categoryId) {
-        baseQuery[CATEGORY_QUERY_KEY] = categoryId;
-      } else {
-        delete baseQuery[CATEGORY_QUERY_KEY];
-      }
-      if (!hasQueryChanged(router.query, baseQuery)) return;
-      void router.push({ pathname: "/explore", query: baseQuery }, undefined, { shallow: true });
-    },
-    [router]
-  );
+  const handleClearLocation = useCallback(() => {
+    setAppliedFilters((prev) => (prev.location ? { ...prev, location: undefined } : prev));
+    setDraftFilters((prev) => (prev.location ? { ...prev, location: undefined } : prev));
+  }, []);
 
   const resetAllFilters = useCallback(() => {
     setSearch("");
     setSelectedCategoryId(null);
-    clearQueryFilters();
-    updateCategoryQuery(null);
-  }, [clearQueryFilters, updateCategoryQuery]);
-
-  const exitSavedView = useCallback(() => {
-    setSavedOnly(false);
-    setExploreIntent("all");
-    setSavedView("all");
-    setActiveCollectionId(null);
-    updateSavedQuery({ saved: false });
-  }, [updateSavedQuery]);
+    setFiltersOpen(false);
+    setCategorySheetOpen(false);
+    setAppliedFilters({});
+    setDraftFilters({});
+  }, []);
 
   const scrollToPopclips = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -644,82 +477,18 @@ function ExploreContent() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
-  const openLocationPicker = useCallback((mode: "geo" | "search" = "search") => {
-    setLocationPickerMode(mode);
-    setFiltersOpen(false);
-    window.requestAnimationFrame(() => setLocationPickerOpen(true));
-  }, []);
+  const openLocationPicker = useCallback(() => {
+    setDraftFilters(cloneExploreFilters(appliedFilters));
+    setFiltersOpen(true);
+  }, [appliedFilters]);
 
   const closeLocationPicker = useCallback(() => {
-    setLocationPickerOpen(false);
-    setLocationPickerMode(null);
+    setFiltersOpen(false);
   }, []);
 
   const handleRequestLocation = useCallback(() => {
-    openLocationPicker("search");
+    openLocationPicker();
   }, [openLocationPicker]);
-
-  const handleClearLocation = useCallback(() => {
-    const baseQuery = sanitizeQuery(router.query);
-    LOCATION_QUERY_KEYS.forEach((key) => {
-      delete baseQuery[key];
-    });
-    if (!hasQueryChanged(router.query, baseQuery)) return;
-    void router.replace({ pathname: router.pathname, query: baseQuery }, undefined, { shallow: true });
-  }, [router]);
-
-  useEffect(() => {
-    if (!router.isReady) return;
-    const raw = router.query.openFilters;
-    const value = Array.isArray(raw) ? raw[0] : raw;
-    if (value !== "1" && value !== "true") {
-      openFiltersHandledRef.current = false;
-      return;
-    }
-    if (openFiltersHandledRef.current) return;
-    openFiltersHandledRef.current = true;
-    setFiltersOpen(true);
-    const nextQuery = sanitizeQuery(router.query);
-    delete nextQuery.openFilters;
-    void router.replace({ pathname: "/explore", query: nextQuery }, undefined, { shallow: true });
-  }, [router, router.isReady, router.query.openFilters]);
-
-  useEffect(() => {
-    if (!router.isReady) return;
-    const raw = router.query.focusSearch;
-    const value = Array.isArray(raw) ? raw[0] : raw;
-    if (value !== "1" && value !== "true") {
-      focusSearchHandledRef.current = false;
-      return;
-    }
-    if (focusSearchHandledRef.current) return;
-    focusSearchHandledRef.current = true;
-    focusSearchInput({ select: true });
-    const nextQuery = sanitizeQuery(router.query);
-    delete nextQuery.focusSearch;
-    void router.replace({ pathname: "/explore", query: nextQuery }, undefined, { shallow: true });
-  }, [focusSearchInput, router, router.isReady, router.query.focusSearch]);
-
-  useEffect(() => {
-    if (!router.isReady) return;
-    const raw = router.query.mode;
-    const value = Array.isArray(raw) ? raw[0] : raw;
-    if (value !== "popclips") {
-      modeQueryHandledRef.current = false;
-      return;
-    }
-    if (modeQueryHandledRef.current) return;
-    modeQueryHandledRef.current = true;
-    setExploreIntent("popclips");
-    setFollowingOnly(false);
-    setSavedOnly(false);
-    setSavedView("all");
-    setActiveCollectionId(null);
-    scrollToPopclips();
-    const nextQuery = sanitizeQuery(router.query);
-    delete nextQuery.mode;
-    void router.replace({ pathname: "/explore", query: nextQuery }, undefined, { shallow: true });
-  }, [router, router.isReady, router.query.mode, scrollToPopclips]);
 
   useEffect(() => {
     const handle = setTimeout(() => {
@@ -727,47 +496,6 @@ function ExploreContent() {
     }, 320);
     return () => clearTimeout(handle);
   }, [search]);
-
-  useEffect(() => {
-    setHydrated(true);
-  }, []);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    const controller = new AbortController();
-    setFollowingLoading(true);
-    fetch("/api/fan/follows", { signal: controller.signal, cache: "no-store" })
-      .then(async (res) => {
-        if (res.status === 401) {
-          setFollowingTotal(0);
-          setFollowingCreatorIds([]);
-          return;
-        }
-        if (!res.ok) throw new Error("request failed");
-        const payload = (await res.json().catch(() => null)) as
-          | { creatorIds?: unknown; count?: unknown }
-          | null;
-        const creatorIds = Array.isArray(payload?.creatorIds)
-          ? payload.creatorIds.filter(
-            (id): id is string => typeof id === "string" && id.trim().length > 0
-          )
-          : [];
-        const count = typeof payload?.count === "number" && Number.isFinite(payload.count)
-          ? payload.count
-          : creatorIds.length;
-        setFollowingCreatorIds(creatorIds);
-        setFollowingTotal(count);
-      })
-      .catch((err) => {
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        setFollowingTotal(0);
-        setFollowingCreatorIds([]);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setFollowingLoading(false);
-      });
-    return () => controller.abort();
-  }, [hydrated]);
 
   useEffect(() => {
     setRecentSearches(readRecentSearches());
@@ -786,55 +514,6 @@ function ExploreContent() {
     const platform = navigator.platform || navigator.userAgent || "";
     setIsMac(/mac|iphone|ipad|ipod/i.test(platform));
   }, []);
-
-  useEffect(() => {
-    if (!router.isReady) return;
-    const savedValue = pickQueryValue(router.query.saved);
-    const savedByQuery = savedValue === "1" || savedValue === "true";
-    if (savedByQuery) {
-      savedQueryRef.current = true;
-      setFollowingOnly(false);
-      const viewValue = pickQueryValue(router.query.view);
-      const collectionValue = pickQueryValue(router.query.collectionId);
-      const nextView = viewValue === "collections" || collectionValue ? "collections" : "all";
-      setSavedOnly(true);
-      setExploreIntent("saved");
-      setSavedView(nextView);
-      setActiveCollectionId(collectionValue || null);
-      return;
-    }
-    if (savedQueryRef.current) {
-      savedQueryRef.current = false;
-      setSavedOnly(false);
-      setExploreIntent("all");
-      setSavedView("all");
-      setActiveCollectionId(null);
-    }
-    const followingValue = pickQueryValue(router.query[FOLLOWING_QUERY_KEY]);
-    const followingByQuery = followingValue === "1" || followingValue === "true";
-    if (followingByQuery) {
-      followingQueryRef.current = true;
-      setSavedOnly(false);
-      setFollowingOnly(true);
-      setExploreIntent("all");
-      return;
-    }
-    if (followingQueryRef.current) {
-      followingQueryRef.current = false;
-      setFollowingOnly(false);
-    }
-  }, [router.isReady, router.query, router.query.collectionId, router.query.saved, router.query.view, router.query.following]);
-
-  useEffect(() => {
-    if (!router.isReady) return;
-    const categoryValue = pickQueryValue(router.query[CATEGORY_QUERY_KEY]).trim();
-    if (!categoryValue) {
-      setSelectedCategoryId(null);
-      return;
-    }
-    const matched = HOME_CATEGORIES.find((category) => category.id === categoryValue);
-    setSelectedCategoryId(matched ? matched.id : null);
-  }, [router.isReady, router.query, router.query.cat]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -926,43 +605,6 @@ function ExploreContent() {
     []
   );
 
-  const handleFollowChange = useCallback((creatorId: string, isFollowing: boolean) => {
-    const normalized = creatorId.trim();
-    if (!normalized) return;
-    setFollowingCreatorIds((prev) => {
-      const next = new Set(prev);
-      if (isFollowing) {
-        next.add(normalized);
-      } else {
-        next.delete(normalized);
-      }
-      const nextList = Array.from(next);
-      setFollowingTotal(nextList.length);
-      return nextList;
-    });
-  }, []);
-
-  const handleFollowUpdate = useCallback((detail?: FollowUpdateDetail) => {
-    const normalized = typeof detail?.creatorId === "string" ? detail.creatorId.trim() : "";
-    if (!normalized || typeof detail?.isFollowing !== "boolean") return;
-    setFollowingCreatorIds((prev) => {
-      const next = new Set(prev);
-      if (detail.isFollowing) {
-        next.add(normalized);
-      } else {
-        next.delete(normalized);
-      }
-      const nextList = Array.from(next);
-      setFollowingTotal(nextList.length);
-      return nextList;
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    return subscribeFollowUpdates(handleFollowUpdate);
-  }, [handleFollowUpdate, hydrated]);
-
   const persistRecentSearch = useCallback((value: string) => {
     const trimmed = value.trim();
     if (!trimmed) return;
@@ -1024,38 +666,12 @@ function ExploreContent() {
 
   const runQuickAction = useCallback(
     (intent: ExploreIntent) => {
-      setExploreIntent(intent);
-      if (intent === "saved") {
-        setFollowingOnly(false);
-        setSavedOnly(true);
-        setSavedView("all");
-        setActiveCollectionId(null);
-        updateSavedQuery({ saved: true, view: "all" });
-        scrollToPopclips();
-      } else if (intent === "popclips") {
-        setSavedOnly(false);
-        setSavedView("all");
-        setActiveCollectionId(null);
-        if (savedOnly) {
-          updateSavedQuery({ saved: false });
-        }
+      if (intent === "popclips") {
         scrollToPopclips();
       } else if (intent === "chat") {
-        setSavedOnly(false);
-        setSavedView("all");
-        setActiveCollectionId(null);
-        if (savedOnly) {
-          updateSavedQuery({ saved: false });
-        }
         setSearch("chat");
         scrollToPopclips();
       } else if (intent === "packs") {
-        setSavedOnly(false);
-        setSavedView("all");
-        setActiveCollectionId(null);
-        if (savedOnly) {
-          updateSavedQuery({ saved: false });
-        }
         const scrolled = scrollToPacks();
         if (!scrolled) {
           void navigateToPacks().then((navigated) => {
@@ -1065,8 +681,6 @@ function ExploreContent() {
           });
         }
       } else {
-        setSavedView("all");
-        setActiveCollectionId(null);
         scrollToTop();
       }
       closeSearchPanel();
@@ -1076,11 +690,9 @@ function ExploreContent() {
       closeSearchPanel,
       focusSearchInput,
       navigateToPacks,
-      savedOnly,
       scrollToPacks,
       scrollToPopclips,
       scrollToTop,
-      updateSavedQuery,
     ]
   );
 
@@ -1090,280 +702,6 @@ function ExploreContent() {
     if (options?.focus === false) return;
     focusSearchInput({ suppressOpen: true });
   }, [closeSearchPanel, focusSearchInput]);
-
-  const openOrganizer = useCallback((savedItemId: string | null, collectionId: string | null) => {
-    if (!savedItemId) return;
-    setOrganizerItemId(savedItemId);
-    setOrganizerCollectionId(collectionId ?? null);
-    setOrganizerOpen(true);
-  }, []);
-
-  const refreshSavedItems = useCallback(async (options?: { silent?: boolean }) => {
-    if (!options?.silent) {
-      setSavedItemsLoading(true);
-    }
-    setSavedItemsError("");
-    try {
-      const res = await fetch("/api/saved/items");
-      if (res.status === 401) {
-        setSavedItemsAll([]);
-        return;
-      }
-      const payload = (await res.json().catch(() => null)) as { items?: SavedPreviewItem[] } | null;
-      if (!res.ok || !payload || !Array.isArray(payload.items)) {
-        setSavedItemsAll([]);
-        setSavedItemsError("No se pudieron cargar tus guardados.");
-        return;
-      }
-      setSavedItemsAll(payload.items);
-    } catch (_err) {
-      setSavedItemsAll([]);
-      setSavedItemsError("No se pudieron cargar tus guardados.");
-    } finally {
-      if (!options?.silent) {
-        setSavedItemsLoading(false);
-      }
-    }
-  }, []);
-
-  const refreshSavedPopclips = useCallback(async (ids: string[], options?: { silent?: boolean }) => {
-    if (!options?.silent) {
-      setSavedPopclipsLoading(true);
-    }
-    setSavedPopclipsError("");
-    if (ids.length === 0) {
-      setSavedPopclips([]);
-      if (!options?.silent) {
-        setSavedPopclipsLoading(false);
-      }
-      return;
-    }
-    try {
-      const res = await fetch("/api/public/popclips/by-ids", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids }),
-      });
-      const payload = (await res.json().catch(() => null)) as { items?: PopClipFeedItem[] } | null;
-      if (!res.ok || !payload || !Array.isArray(payload.items)) {
-        setSavedPopclips([]);
-        setSavedPopclipsError("No se pudieron cargar tus PopClips guardados.");
-        return;
-      }
-      const resolvedItems = payload.items as PopClipFeedItem[];
-      setSavedPopclips((prev) => {
-        const fallbackMap = new Map<string, PopClipFeedItem>();
-        feedItems.forEach((item) => fallbackMap.set(item.id, item));
-        prev.forEach((item) => {
-          if (!fallbackMap.has(item.id)) fallbackMap.set(item.id, item);
-        });
-        return resolvedItems.map((item) => mergePopclipMeta(item, fallbackMap.get(item.id)));
-      });
-    } catch (_err) {
-      setSavedPopclips([]);
-      setSavedPopclipsError("No se pudieron cargar tus PopClips guardados.");
-    } finally {
-      if (!options?.silent) {
-        setSavedPopclipsLoading(false);
-      }
-    }
-  }, [feedItems]);
-
-  const refreshSavedCollections = useCallback(async (options?: { silent?: boolean }) => {
-    if (!options?.silent) {
-      setSavedCollectionsLoading(true);
-    }
-    setSavedCollectionsError("");
-    try {
-      const res = await fetch("/api/saved/collections");
-      if (res.status === 401) {
-        setSavedCollections([]);
-        return;
-      }
-      const payload = (await res.json().catch(() => null)) as { items?: SavedCollection[] } | null;
-      if (!res.ok || !payload || !Array.isArray(payload.items)) {
-        setSavedCollections([]);
-        setSavedCollectionsError("No se pudieron cargar las colecciones.");
-        return;
-      }
-      setSavedCollections(payload.items);
-    } catch (_err) {
-      setSavedCollections([]);
-      setSavedCollectionsError("No se pudieron cargar las colecciones.");
-    } finally {
-      if (!options?.silent) {
-        setSavedCollectionsLoading(false);
-      }
-    }
-  }, []);
-
-  const loadCollectionItems = useCallback(
-    async (collectionId: string | null, options?: { silent?: boolean }) => {
-      if (!collectionId) {
-        setCollectionItems([]);
-        setCollectionItemsError("");
-        return;
-      }
-      if (!options?.silent) {
-        setCollectionItemsLoading(true);
-      }
-      setCollectionItemsError("");
-      try {
-        const res = await fetch(`/api/saved/items?collectionId=${encodeURIComponent(collectionId)}`);
-        if (res.status === 401) {
-          setCollectionItems([]);
-          return;
-        }
-        const payload = (await res.json().catch(() => null)) as { items?: SavedPreviewItem[] } | null;
-        if (!res.ok || !payload || !Array.isArray(payload.items)) {
-          setCollectionItems([]);
-          setCollectionItemsError("No se pudieron cargar los guardados.");
-          return;
-        }
-        setCollectionItems(payload.items);
-      } catch (_err) {
-        setCollectionItems([]);
-        setCollectionItemsError("No se pudieron cargar los guardados.");
-      } finally {
-        if (!options?.silent) {
-          setCollectionItemsLoading(false);
-        }
-      }
-    },
-    []
-  );
-
-  const handleOrganizerMoved = useCallback(
-    (collectionId: string | null) => {
-      if (!organizerItemId) return;
-      setSavedItemsAll((prev) =>
-        prev.map((item) => (item.id === organizerItemId ? { ...item, collectionId } : item))
-      );
-      void refreshSavedCollections({ silent: true });
-      if (savedView === "collections" && activeCollectionId) {
-        void loadCollectionItems(activeCollectionId, { silent: true });
-      }
-    },
-    [activeCollectionId, organizerItemId, refreshSavedCollections, loadCollectionItems, savedView]
-  );
-
-  const handleCollectionCreated = useCallback(
-    (collection: SavedCollection) => {
-      setSavedCollections((prev) => {
-        if (prev.some((item) => item.id === collection.id)) return prev;
-        return [{ ...collection }, ...prev];
-      });
-      setFollowingOnly(false);
-      setSavedOnly(true);
-      setExploreIntent("saved");
-      setSavedView("collections");
-      setActiveCollectionId(collection.id);
-      updateSavedQuery({ saved: true, view: "collections", collectionId: collection.id });
-    },
-    [updateSavedQuery]
-  );
-
-  const handleCollectionRenamed = useCallback(
-    (payload: { id: string; name: string }) => {
-      setSavedCollections((prev) =>
-        prev.map((collection) => (collection.id === payload.id ? { ...collection, name: payload.name } : collection))
-      );
-      showToast("Colección renombrada.");
-    },
-    [showToast]
-  );
-
-  const handleDeleteCollection = useCallback(async () => {
-    if (!deleteCollection || deleteCollectionPending) return;
-    setDeleteCollectionPending(true);
-    setDeleteCollectionError("");
-    try {
-      const res = await fetch(`/api/saved/collections/${encodeURIComponent(deleteCollection.id)}`, {
-        method: "DELETE",
-      });
-      if (res.status === 401) {
-        setDeleteCollectionError("Inicia sesion para borrar.");
-        return;
-      }
-      if (!res.ok) throw new Error("request failed");
-      setSavedCollections((prev) => prev.filter((collection) => collection.id !== deleteCollection.id));
-      setSavedItemsAll((prev) =>
-        prev.map((item) =>
-          item.collectionId === deleteCollection.id ? { ...item, collectionId: null } : item
-        )
-      );
-      if (activeCollectionId === deleteCollection.id) {
-        setActiveCollectionId(null);
-        setCollectionItems([]);
-        updateSavedQuery({ saved: true, view: "collections" });
-      }
-      void refreshSavedCollections({ silent: true });
-      showToast("Colección borrada.");
-      setDeleteCollection(null);
-    } catch (_err) {
-      setDeleteCollectionError("No se pudo borrar la colección.");
-    } finally {
-      setDeleteCollectionPending(false);
-    }
-  }, [
-    activeCollectionId,
-    deleteCollection,
-    deleteCollectionPending,
-    refreshSavedCollections,
-    showToast,
-    updateSavedQuery,
-  ]);
-
-  const handleRemoveSavedItem = useCallback(
-    async (savedItemId: string) => {
-      if (savedItemRemovingId) return;
-      setSavedItemRemovingId(savedItemId);
-      try {
-        const res = await fetch(`/api/saved/items/${encodeURIComponent(savedItemId)}`, {
-          method: "DELETE",
-        });
-        if (res.status === 401) {
-          showToast("Inicia sesion para quitar guardados.");
-          return;
-        }
-        if (!res.ok) throw new Error("request failed");
-        setSavedItemsAll((prev) => prev.filter((item) => item.id !== savedItemId));
-        setCollectionItems((prev) => prev.filter((item) => item.id !== savedItemId));
-        void refreshSavedCollections({ silent: true });
-        showToast("Quitado de guardados.");
-      } catch (_err) {
-        showToast("No se pudo quitar el guardado.");
-      } finally {
-        setSavedItemRemovingId(null);
-      }
-    },
-    [refreshSavedCollections, savedItemRemovingId, showToast]
-  );
-
-  useEffect(() => {
-    if (!hydrated) return;
-    void refreshSavedItems();
-  }, [hydrated, refreshSavedItems]);
-
-  useEffect(() => {
-    if (!hydrated || !savedOnly) return;
-    void refreshSavedItems({ silent: true });
-  }, [hydrated, refreshSavedItems, savedOnly]);
-
-  useEffect(() => {
-    if (!hydrated || !savedOnly || savedView !== "all") return;
-    void refreshSavedPopclips(savedPopclipIds);
-  }, [hydrated, refreshSavedPopclips, savedOnly, savedPopclipIds, savedView]);
-
-  useEffect(() => {
-    if (!hydrated || !savedOnly || savedView !== "collections") return;
-    void refreshSavedCollections();
-  }, [hydrated, refreshSavedCollections, savedOnly, savedView]);
-
-  useEffect(() => {
-    if (!hydrated || !savedOnly || savedView !== "collections") return;
-    void loadCollectionItems(activeCollectionId);
-  }, [activeCollectionId, hydrated, loadCollectionItems, savedOnly, savedView]);
 
   const copyToClipboard = useCallback(async (value: string) => {
     if (typeof navigator === "undefined") return false;
@@ -1466,177 +804,6 @@ function ExploreContent() {
     [handleCopyLink, handleReportClip, handleShareLink]
   );
 
-  const updateFeedSaveCount = useCallback((clipId: string, delta: number) => {
-    setFeedItems((prev) =>
-      prev.map((item) => {
-        if (item.id !== clipId) return item;
-        const currentCount = Number.isFinite(item.savesCount ?? NaN) ? (item.savesCount as number) : 0;
-        const nextCount = Math.max(0, currentCount + delta);
-        return { ...item, savesCount: nextCount };
-      })
-    );
-  }, []);
-
-  const handleToggleSave = useCallback(
-    async (item: PopClipTileItem) => {
-      const wasSaved = savedPopclipSet.has(item.id);
-      const nextSaved = !wasSaved;
-      const delta = nextSaved ? 1 : -1;
-      const tempId = `temp-popclip-${item.id}`;
-
-      setSavedItemsAll((prev) => {
-        if (nextSaved) {
-          const preview: SavedPreviewItem = {
-            id: tempId,
-            type: "POPCLIP",
-            entityId: item.id,
-            collectionId: null,
-            createdAt: new Date().toISOString(),
-            title: (item.title || item.caption || "PopClip").trim() || "PopClip",
-            subtitle: `@${item.creator.handle}`,
-            thumbUrl: item.posterUrl ?? item.thumbnailUrl ?? item.creator.avatarUrl ?? null,
-            href: `/c/${encodeURIComponent(item.creator.handle)}?popclip=${encodeURIComponent(item.id)}`,
-          };
-          return [preview, ...prev];
-        }
-        return prev.filter((entry) => !(entry.type === "POPCLIP" && entry.entityId === item.id));
-      });
-      updateFeedSaveCount(item.id, delta);
-
-      try {
-        const res = await fetch("/api/saved/toggle", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "POPCLIP", entityId: item.id }),
-        });
-        const payload = (await res.json().catch(() => null)) as
-          | { saved?: boolean; savedItemId?: string; collectionId?: string | null }
-          | null;
-        if (!res.ok || !payload || typeof payload.saved !== "boolean") {
-          if (res.status === 401) {
-            throw new Error("auth_required");
-          }
-          throw new Error("save_failed");
-        }
-        if (payload.saved !== nextSaved) {
-          await refreshSavedItems({ silent: true });
-        } else if (payload.saved && payload.savedItemId) {
-          setSavedItemsAll((prev) =>
-            prev.map((entry) =>
-              entry.id === tempId ? { ...entry, id: payload.savedItemId as string, collectionId: payload.collectionId ?? null } : entry
-            )
-          );
-        } else if (!payload.saved) {
-          showToast("Quitado de guardados");
-        }
-      } catch (err) {
-        setSavedItemsAll((prev) => {
-          if (nextSaved) {
-            return prev.filter((entry) => !(entry.type === "POPCLIP" && entry.entityId === item.id));
-          }
-          const preview: SavedPreviewItem = {
-            id: tempId,
-            type: "POPCLIP",
-            entityId: item.id,
-            collectionId: null,
-            createdAt: new Date().toISOString(),
-            title: (item.title || item.caption || "PopClip").trim() || "PopClip",
-            subtitle: `@${item.creator.handle}`,
-            thumbUrl: item.posterUrl ?? item.thumbnailUrl ?? item.creator.avatarUrl ?? null,
-            href: `/c/${encodeURIComponent(item.creator.handle)}?popclip=${encodeURIComponent(item.id)}`,
-          };
-          return [preview, ...prev];
-        });
-        updateFeedSaveCount(item.id, -delta);
-        if (err instanceof Error && err.message === "auth_required") {
-          showToast("Inicia sesion para guardar.");
-        } else {
-          showToast("No se pudo actualizar guardados.");
-        }
-      }
-    },
-    [refreshSavedItems, savedPopclipSet, showToast, updateFeedSaveCount]
-  );
-
-  const handleToggleCreatorSave = useCallback(
-    async (creator: RecommendedCreator) => {
-      const wasSaved = savedCreatorSet.has(creator.id);
-      const nextSaved = !wasSaved;
-      const tempId = `temp-creator-${creator.id}`;
-
-      setSavedItemsAll((prev) => {
-        if (nextSaved) {
-          const preview: SavedPreviewItem = {
-            id: tempId,
-            type: "CREATOR",
-            entityId: creator.id,
-            collectionId: null,
-            createdAt: new Date().toISOString(),
-            title: creator.displayName || "Creador",
-            subtitle: `@${creator.handle}`,
-            thumbUrl: creator.avatarUrl ?? null,
-            href: `/c/${encodeURIComponent(creator.handle)}`,
-          };
-          return [preview, ...prev];
-        }
-        return prev.filter((entry) => !(entry.type === "CREATOR" && entry.entityId === creator.id));
-      });
-
-      try {
-        const res = await fetch("/api/saved/toggle", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "CREATOR", entityId: creator.id }),
-        });
-        const payload = (await res.json().catch(() => null)) as
-          | { saved?: boolean; savedItemId?: string; collectionId?: string | null }
-          | null;
-        if (!res.ok || !payload || typeof payload.saved !== "boolean") {
-          if (res.status === 401) {
-            throw new Error("auth_required");
-          }
-          throw new Error("save_failed");
-        }
-        if (payload.saved !== nextSaved) {
-          await refreshSavedItems({ silent: true });
-        } else if (payload.saved && payload.savedItemId) {
-          setSavedItemsAll((prev) =>
-            prev.map((entry) =>
-              entry.id === tempId
-                ? { ...entry, id: payload.savedItemId as string, collectionId: payload.collectionId ?? null }
-                : entry
-            )
-          );
-        } else if (!payload.saved) {
-          showToast("Quitado de guardados");
-        }
-      } catch (err) {
-        setSavedItemsAll((prev) => {
-          if (nextSaved) {
-            return prev.filter((entry) => !(entry.type === "CREATOR" && entry.entityId === creator.id));
-          }
-          const preview: SavedPreviewItem = {
-            id: tempId,
-            type: "CREATOR",
-            entityId: creator.id,
-            collectionId: null,
-            createdAt: new Date().toISOString(),
-            title: creator.displayName || "Creador",
-            subtitle: `@${creator.handle}`,
-            thumbUrl: creator.avatarUrl ?? null,
-            href: `/c/${encodeURIComponent(creator.handle)}`,
-          };
-          return [preview, ...prev];
-        });
-        if (err instanceof Error && err.message === "auth_required") {
-          showToast("Inicia sesion para guardar.");
-        } else {
-          showToast("No se pudo actualizar guardados.");
-        }
-      }
-    },
-    [refreshSavedItems, savedCreatorSet, showToast]
-  );
 
   const openCaptionSheet = useCallback((item: PopClipTileItem) => {
     setCaptionSheetClip(item);
@@ -1649,16 +816,16 @@ function ExploreContent() {
   }, []);
 
   useEffect(() => {
-    if (!router.isReady) return;
     const requestKey = feedRequestKeyRef.current + 1;
     feedRequestKeyRef.current = requestKey;
     loadMoreAbortRef.current?.abort();
     loadMorePendingRef.current = false;
     setFeedLoadingMore(false);
     const controller = new AbortController();
-    const params = new URLSearchParams(feedQueryString);
-    params.set("take", String(FEED_PAGE_SIZE));
-    const endpoint = `/api/public/popclips/feed?${params.toString()}`;
+    const apiParams = new URLSearchParams(apiQuery);
+    apiParams.set("take", String(FEED_PAGE_SIZE));
+    const endpoint = `/api/public/popclips/feed?${apiParams.toString()}`;
+    console.log("[EXPLORE-LOC] Feed API endpoint:", endpoint);
     if (debugExplore) {
       console.debug("[explore] fetch feed", endpoint);
     }
@@ -1693,7 +860,7 @@ function ExploreContent() {
         }
       });
     return () => controller.abort();
-  }, [debugExplore, feedQueryString, router.isReady, seedKey]);
+  }, [apiQuery, debugExplore, seedKey]);
 
   const selectedCategory = useMemo(
     () => HOME_CATEGORIES.find((category) => category.id === selectedCategoryId) ?? null,
@@ -1716,31 +883,12 @@ function ExploreContent() {
     },
     [normalizedSearch, selectedCategory]
   );
-  const filteredFeedItems = useMemo(() => {
-    const filtered = filterClips(feedItems);
-    if (!followingOnly) return filtered;
-    return filtered.filter((item) => followingSet.has(item.creatorId));
-  }, [feedItems, filterClips, followingOnly, followingSet]);
+  const filteredFeedItems = useMemo(() => filterClips(feedItems), [feedItems, filterClips]);
 
   useEffect(() => {
     if (!feedContext || viewerOpen) return;
     feedContext.setIds(filteredFeedItems.map((item) => item.id));
   }, [feedContext, filteredFeedItems, viewerOpen]);
-  const filteredSavedPopclips = useMemo(() => {
-    if (!normalizedSearch) return savedPopclips;
-    return savedPopclips.filter((item) => {
-      const haystack = `${item.title || ""} ${item.caption || ""} ${item.creator.displayName} ${item.creator.handle
-        } ${item.creator.locationLabel || ""}`.toLowerCase();
-      return haystack.includes(normalizedSearch);
-    });
-  }, [normalizedSearch, savedPopclips]);
-  const filteredSavedOtherItems = useMemo(() => {
-    if (!normalizedSearch) return savedOtherItems;
-    return savedOtherItems.filter((item) => {
-      const haystack = `${item.title} ${item.subtitle || ""}`.toLowerCase();
-      return haystack.includes(normalizedSearch);
-    });
-  }, [normalizedSearch, savedOtherItems]);
   const filteredCreators = useMemo(() => {
     return recommendedCreators.filter((creator) => {
       if (selectedCategory) {
@@ -1758,41 +906,17 @@ function ExploreContent() {
     []
   );
 
-  const savedCount = savedItemsAll.length;
-  const savedMatchesCount = filteredSavedPopclips.length + filteredSavedOtherItems.length;
-  const showFeedEmpty = !savedOnly && !followingOnly && !feedLoading && !feedError && filteredFeedItems.length === 0;
-  const showFollowingEmpty =
-    followingOnly && !feedLoading && !feedError && !followingLoading && filteredFeedItems.length === 0;
-  const showFollowingLoading = followingOnly && followingLoading;
-  const followingEmptyCopy =
-    typeof followingTotal === "number" && followingTotal === 0
-      ? "Aún no sigues a nadie."
-      : "No hay PopClips de tus seguidos con estos filtros.";
-  const savedEmpty = savedOnly && savedView === "all" && !savedItemsLoading && !savedItemsError && savedCount === 0;
-  const savedNoMatch =
-    savedOnly &&
-    savedView === "all" &&
-    !savedItemsLoading &&
-    !savedItemsError &&
-    !savedPopclipsLoading &&
-    !savedPopclipsError &&
-    savedCount > 0 &&
-    savedMatchesCount === 0;
-  const showSavedCount = hydrated && (savedOnly || savedCount > 0);
-  const savedLabel = showSavedCount ? `Guardados · ${savedCount}` : "Guardados";
-  const followingLabel =
-    typeof followingTotal === "number" ? `Siguiendo (${followingTotal})` : "Siguiendo";
-  const showLocationBanner = hasLocation && !savedOnly;
+  const showFeedEmpty = !feedLoading && !feedError && filteredFeedItems.length === 0;
+  const showLocationBanner = hasLocation;
   const showCreatorsEmpty =
     !creatorsLoading && !creatorsError && filteredCreators.length === 0;
 
   const applyCategoryFilter = useCallback(
     (categoryId: string) => {
       setSelectedCategoryId(categoryId);
-      updateCategoryQuery(categoryId);
       scrollToPopclips();
     },
-    [scrollToPopclips, updateCategoryQuery]
+    [scrollToPopclips]
   );
 
   const { searchQueryActions, recentActions, shortcutActions, categoryActions, searchActions } = useMemo(() => {
@@ -1827,13 +951,6 @@ function ExploreContent() {
     }
 
     shortcutItems.push(
-      {
-        id: "shortcut:saved",
-        label: "Guardados",
-        kind: "shortcut",
-        index: index++,
-        onSelect: () => runQuickAction("saved"),
-      },
       {
         id: "shortcut:popclips",
         label: "PopClips",
@@ -2084,15 +1201,10 @@ function ExploreContent() {
       <PillButton intent="secondary" size="sm" onClick={() => setCategorySheetOpen(true)}>
         Categorías
       </PillButton>
-      <PillButton intent="secondary" size="sm" onClick={() => setFiltersOpen(true)} className="gap-2">
-        <span>Filtros</span>
-        {activeFilterCount > 0 ? (
-          <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[color:rgba(var(--brand-rgb),0.2)] px-1.5 text-[11px] font-semibold text-[color:var(--text)]">
-            {activeFilterCount}
-          </span>
-        ) : null}
+      <PillButton intent="secondary" size="sm" onClick={openFilters} className="gap-2">
+        <span>Filtros{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}</span>
       </PillButton>
-      {hasLocation ? (
+      {hasLocation && appliedFilters.location?.place ? (
         <button
           type="button"
           onClick={handleClearLocation}
@@ -2100,51 +1212,11 @@ function ExploreContent() {
           className="inline-flex items-center gap-2 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1.5 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
         >
           <span className="max-w-[160px] truncate">
-            {locationCenterLabel} · {radiusKm} km
+            {appliedFilters.location.place.label} · {radiusKm} km
           </span>
           <X className="h-3.5 w-3.5 text-[color:var(--muted)]" aria-hidden="true" />
         </button>
       ) : null}
-      <PillButton
-        intent={savedOnly ? "primary" : "secondary"}
-        size="sm"
-        aria-pressed={savedOnly}
-        onClick={() => {
-          if (savedOnly) {
-            exitSavedView();
-            return;
-          }
-          setFollowingOnly(false);
-          setSavedOnly(true);
-          setExploreIntent("saved");
-          setSavedView("all");
-          setActiveCollectionId(null);
-          updateSavedQuery({ saved: true, view: "all" });
-        }}
-      >
-        {savedLabel}
-      </PillButton>
-      <PillButton
-        intent={followingOnly ? "primary" : "secondary"}
-        size="sm"
-        aria-pressed={followingOnly}
-        onClick={() => {
-          if (followingOnly) {
-            setFollowingOnly(false);
-            updateFollowingQuery(false);
-            return;
-          }
-          if (savedOnly) {
-            exitSavedView();
-          }
-          setExploreIntent("all");
-          setFollowingOnly(true);
-          updateFollowingQuery(true);
-          scrollToPopclips();
-        }}
-      >
-        {followingLabel}
-      </PillButton>
     </div>
   );
 
@@ -2153,7 +1225,10 @@ function ExploreContent() {
     setSeedLoading(true);
     setSeedError("");
     try {
-      const res = await fetch("/api/dev/seed-popclips", { method: "POST" });
+      const seedEndpoint = apiQuery
+        ? `/api/dev/seed-popclips?${apiQuery}`
+        : "/api/dev/seed-popclips";
+      const res = await fetch(seedEndpoint, { method: "POST" });
       const payload = (await res.json().catch(() => null)) as
         | { ok?: boolean; count?: number; createdIds?: string[]; error?: string }
         | null;
@@ -2166,19 +1241,6 @@ function ExploreContent() {
       const createdIds = Array.isArray(payload.createdIds) ? payload.createdIds : [];
       const count = typeof payload.count === "number" && Number.isFinite(payload.count) ? payload.count : createdIds.length;
       setSeedError("");
-      if (createdIds.length > 0) {
-        const autoSaveIds = createdIds.slice(0, 3);
-        await Promise.all(
-          autoSaveIds.map((id) =>
-            fetch("/api/saved/toggle", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ type: "POPCLIP", entityId: id }),
-            })
-          )
-        );
-        await refreshSavedItems({ silent: true });
-      }
       // Force feed refresh
       setFeedItems([]);
       setFeedCursor(null);
@@ -2193,20 +1255,20 @@ function ExploreContent() {
     } finally {
       setSeedLoading(false);
     }
-  }, [feedContext, isDev, refreshSavedItems, seedLoading, showToast]);
+  }, [apiQuery, feedContext, isDev, seedLoading, showToast]);
 
   const loadMoreFeed = useCallback(async () => {
-    if (!router.isReady) return;
     if (!feedCursor || loadMorePendingRef.current) return;
     loadMorePendingRef.current = true;
     const requestKey = feedRequestKeyRef.current;
     loadMoreAbortRef.current?.abort();
     const controller = new AbortController();
     loadMoreAbortRef.current = controller;
-    const params = new URLSearchParams(feedQueryString);
-    params.set("take", String(FEED_PAGE_SIZE));
-    params.set("cursor", feedCursor);
-    const endpoint = `/api/public/popclips/feed?${params.toString()}`;
+    const apiParams = new URLSearchParams(apiQuery);
+    apiParams.set("take", String(FEED_PAGE_SIZE));
+    apiParams.set("cursor", feedCursor);
+    const endpoint = `/api/public/popclips/feed?${apiParams.toString()}`;
+    console.log("[EXPLORE-LOC] LoadMore API endpoint:", endpoint);
     setFeedLoadingMore(true);
     try {
       const res = await fetch(endpoint, { signal: controller.signal, cache: "no-store" });
@@ -2234,7 +1296,7 @@ function ExploreContent() {
       }
       loadMorePendingRef.current = false;
     }
-  }, [feedCursor, feedQueryString, router.isReady]);
+  }, [apiQuery, feedCursor]);
 
   const handleViewerNavigate = useCallback(
     (nextIndex: number) => {
@@ -2266,21 +1328,14 @@ function ExploreContent() {
     [filteredFeedItems, openPopclipWithItems]
   );
 
-  const openSavedPopclip = useCallback(
-    (item: PopClipTileItem) => {
-      openPopclipWithItems(filteredSavedPopclips, item);
-    },
-    [filteredSavedPopclips, openPopclipWithItems]
-  );
-
   useEffect(() => {
-    if (!router.isReady) return;
-    const params = new URLSearchParams(feedQueryString);
-    params.set("limit", "12");
-    const queryString = params.toString();
+    const apiParams = new URLSearchParams(apiQuery);
+    apiParams.set("limit", "12");
+    const queryString = apiParams.toString();
     const endpoint = queryString
       ? `/api/public/creators/recommended?${queryString}`
       : "/api/public/creators/recommended";
+    console.log("[EXPLORE-LOC] Creators API endpoint:", endpoint);
     if (debugExplore) {
       console.debug("[explore] fetch recommended", endpoint);
     }
@@ -2313,7 +1368,7 @@ function ExploreContent() {
         if (!controller.signal.aborted) setCreatorsLoading(false);
       });
     return () => controller.abort();
-  }, [debugExplore, feedQueryString, router.isReady, seedKey]);
+  }, [apiQuery, debugExplore, seedKey]);
 
   return (
     <>
@@ -2330,16 +1385,9 @@ function ExploreContent() {
               <a
                 onClick={(event) => {
                   event.preventDefault();
-                  setSearch("");
-                  setSelectedCategoryId(null);
-                  setFollowingOnly(false);
-                  setSavedOnly(false);
-                  setExploreIntent("all");
-                  setSavedView("all");
-                  setActiveCollectionId(null);
+                  resetAllFilters();
                   closeSearchPanel();
                   scrollToTop();
-                  void router.push("/explore");
                 }}
               >
                 IntimiPop
@@ -2403,7 +1451,6 @@ function ExploreContent() {
                     active
                     onClick={() => {
                       setSelectedCategoryId(null);
-                      updateCategoryQuery(null);
                     }}
                   />
                 </div>
@@ -2444,341 +1491,7 @@ function ExploreContent() {
                   </p>
                 </div>
               ) : null}
-              {savedOnly ? (
-                <div className="space-y-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <PillButton
-                      intent={savedView === "all" ? "primary" : "secondary"}
-                      size="sm"
-                      aria-pressed={savedView === "all"}
-                      onClick={() => {
-                        setSavedView("all");
-                        setActiveCollectionId(null);
-                        updateSavedQuery({ saved: true, view: "all" });
-                      }}
-                    >
-                      Todo
-                    </PillButton>
-                    <PillButton
-                      intent={savedView === "collections" ? "primary" : "secondary"}
-                      size="sm"
-                      aria-pressed={savedView === "collections"}
-                      onClick={() => {
-                        setSavedView("collections");
-                        setActiveCollectionId(null);
-                        updateSavedQuery({ saved: true, view: "collections" });
-                        void refreshSavedCollections();
-                      }}
-                    >
-                      Colecciones
-                    </PillButton>
-                  </div>
-
-                  {savedView === "all" ? (
-                    savedItemsLoading ? (
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        {Array.from({ length: 4 }).map((_, idx) => (
-                          <Skeleton key={`saved-skeleton-${idx}`} className="h-20 w-full rounded-2xl" />
-                        ))}
-                      </div>
-                    ) : savedItemsError ? (
-                      <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
-                        {savedItemsError}
-                      </div>
-                    ) : savedEmpty ? (
-                      <div className="mx-auto w-full max-w-md rounded-2xl border border-[color:var(--surface-border)] bg-[color:rgba(17,24,39,0.75)] p-6 text-[color:var(--muted)] shadow-lg shadow-black/20 backdrop-blur-sm sm:p-8">
-                        <div className="flex items-start gap-3">
-                          <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[color:rgba(var(--brand-rgb),0.3)] bg-[color:rgba(var(--brand-rgb),0.12)] text-[color:var(--text)]">
-                            <Bookmark className="h-5 w-5" aria-hidden="true" />
-                          </span>
-                          <div className="space-y-1">
-                            <div className="text-sm font-semibold text-[color:var(--text)]">
-                              No tienes guardados todavía.
-                            </div>
-                            <div className="text-xs text-[color:var(--muted)]">
-                              Guarda clips, packs o creadores para volver rápido cuando te encajen.
-                            </div>
-                          </div>
-                        </div>
-                        <div className="mt-5 flex flex-wrap items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={exitSavedView}
-                            aria-label="Ver todo"
-                            className="inline-flex items-center justify-center rounded-full bg-[color:var(--brand-strong)] px-4 py-2 text-xs font-semibold text-white hover:bg-[color:var(--brand)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
-                          >
-                            Ver todo
-                          </button>
-                          <button
-                            type="button"
-                            onClick={exitSavedView}
-                            aria-label="Quitar filtro"
-                            className="inline-flex items-center justify-center text-xs font-semibold text-[color:var(--muted)] underline-offset-2 hover:text-[color:var(--text)] hover:underline focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
-                          >
-                            Quitar filtro
-                          </button>
-                          {isDev ? (
-                            <button
-                              type="button"
-                              onClick={handleSeedDemo}
-                              disabled={seedLoading}
-                              className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60"
-                            >
-                              {seedLoading ? "Generando..." : "Generar clips demo"}
-                            </button>
-                          ) : null}
-                          {seedError ? <span className="text-[color:var(--danger)]">{seedError}</span> : null}
-                        </div>
-                      </div>
-                    ) : savedNoMatch ? (
-                      <div className="flex flex-col items-start gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-[color:var(--muted)]">
-                        <span className="text-sm">No hay guardados con estos filtros.</span>
-                        <button
-                          type="button"
-                          onClick={exitSavedView}
-                          className="inline-flex items-center justify-center rounded-full bg-[color:var(--brand-strong)] px-4 py-2 text-xs font-semibold text-white hover:bg-[color:var(--brand)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
-                        >
-                          Ver todo
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="space-y-6">
-                        {savedPopclipIds.length > 0 ? (
-                          <div className="space-y-3">
-                            {savedPopclipsLoading ? (
-                              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
-                                {Array.from({ length: 6 }).map((_, idx) => (
-                                  <div
-                                    key={`saved-popclip-skeleton-${idx}`}
-                                    className="flex flex-col gap-2 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3"
-                                  >
-                                    <Skeleton className="aspect-[10/13] w-full rounded-xl sm:aspect-[3/4] md:aspect-[4/5]" />
-                                    <div className="flex flex-wrap gap-2">
-                                      <Skeleton className="h-5 w-16 rounded-full" />
-                                      <Skeleton className="h-5 w-20 rounded-full" />
-                                    </div>
-                                    <div className="flex gap-2">
-                                      <Skeleton className="h-9 flex-1 rounded-full" />
-                                      <Skeleton className="h-9 flex-1 rounded-full" />
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : savedPopclipsError ? (
-                              <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
-                                {savedPopclipsError}
-                              </div>
-                            ) : filteredSavedPopclips.length === 0 ? (
-                              <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
-                                No hay PopClips guardados.
-                              </div>
-                            ) : (
-                              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
-                                {filteredSavedPopclips.map((item) => {
-                                  const savedPreview = savedPopclipPreviewMap.get(item.id);
-                                  const organizerItemId =
-                                    savedPreview && !savedPreview.id.startsWith("temp-popclip-")
-                                      ? savedPreview.id
-                                      : null;
-                                  const organizerCollectionId = organizerItemId
-                                    ? savedPreview?.collectionId ?? null
-                                    : null;
-                                  return (
-                                    <PopClipTile
-                                      key={item.id}
-                                      item={item}
-                                      onOpen={openSavedPopclip}
-                                      profileHref={`/c/${encodeURIComponent(item.creator.handle)}`}
-                                      chatHref={appendReturnTo(
-                                        `/go/${encodeURIComponent(item.creator.handle)}`,
-                                        router.asPath
-                                      )}
-                                      isFollowing={followingSet.has(item.creatorId)}
-                                      onFollowChange={handleFollowChange}
-                                      onFollowError={showToast}
-                                      isSaved={savedPopclipSet.has(item.id)}
-                                      onToggleSave={handleToggleSave}
-                                      onOrganize={openOrganizer}
-                                      organizerItemId={organizerItemId}
-                                      organizerCollectionId={organizerCollectionId}
-                                      hasLocationCenter={hasLocation}
-                                      onRequestLocation={handleRequestLocation}
-                                      onOpenCaption={openCaptionSheet}
-                                      onCopyLink={handleCopyLink}
-                                      onShare={handleShareLink}
-                                      onReport={handleReportClip}
-                                    />
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        ) : null}
-                        {filteredSavedOtherItems.length > 0 ? (
-                          <div className="space-y-3">
-                            <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[color:var(--muted)]">
-                              Otros guardados
-                            </div>
-                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                              {filteredSavedOtherItems.map((item) => (
-                                <SavedItemCard
-                                  key={item.id}
-                                  item={item}
-                                  onMove={() => openOrganizer(item.id, item.collectionId ?? null)}
-                                  onRemove={() => void handleRemoveSavedItem(item.id)}
-                                  removing={savedItemRemovingId === item.id}
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-                    )
-                  ) : (
-                    <div className="space-y-4">
-                      {activeCollectionId ? (
-                        <div className="space-y-3">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveCollectionId(null);
-                              updateSavedQuery({ saved: true, view: "collections" });
-                            }}
-                            className="inline-flex items-center gap-2 text-xs font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
-                          >
-                            ← Colecciones
-                          </button>
-                          <div className="text-sm font-semibold text-[color:var(--text)]">
-                            {activeCollection?.name ?? "Colección"}
-                          </div>
-                          {collectionItemsLoading ? (
-                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                              {Array.from({ length: 3 }).map((_, idx) => (
-                                <Skeleton key={`collection-item-${idx}`} className="h-20 w-full rounded-2xl" />
-                              ))}
-                            </div>
-                          ) : collectionItemsError ? (
-                            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
-                              {collectionItemsError}
-                            </div>
-                          ) : collectionItems.length === 0 ? (
-                            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
-                              Esta colección está vacía.
-                            </div>
-                          ) : (
-                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                              {collectionItems.map((item) => (
-                                <SavedItemCard
-                                  key={item.id}
-                                  item={item}
-                                  onMove={() => openOrganizer(item.id, item.collectionId ?? null)}
-                                  onRemove={() => void handleRemoveSavedItem(item.id)}
-                                  removing={savedItemRemovingId === item.id}
-                                />
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ) : savedCollectionsLoading ? (
-                        <div className="space-y-2 text-xs text-[color:var(--muted)]">Cargando colecciones...</div>
-                      ) : savedCollectionsError ? (
-                        <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
-                          {savedCollectionsError}
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          {savedCollections.length === 0 ? (
-                            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
-                              Aún no tienes colecciones.
-                            </div>
-                          ) : null}
-                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            <button
-                              type="button"
-                              onClick={() => setCreateCollectionOpen(true)}
-                              className="flex min-h-[160px] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 py-6 text-center text-xs font-semibold text-[color:var(--muted)] hover:text-[color:var(--text)]"
-                            >
-                              <span className="text-2xl font-semibold">+</span>
-                              <span>Nueva colección</span>
-                            </button>
-                            {savedCollections.map((collection) => {
-                              const cover = savedCollectionCoverMap.get(collection.id);
-                              const fallback =
-                                cover?.title?.trim()?.[0]?.toUpperCase() ||
-                                collection.name?.trim()?.[0]?.toUpperCase() ||
-                                "C";
-                              return (
-                                <div key={collection.id} className="relative">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setActiveCollectionId(collection.id);
-                                      updateSavedQuery({
-                                        saved: true,
-                                        view: "collections",
-                                        collectionId: collection.id,
-                                      });
-                                    }}
-                                    className="group flex w-full flex-col gap-2 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3 text-left transition hover:bg-[color:var(--surface-1)]"
-                                  >
-                                    <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]">
-                                      {cover?.thumbUrl ? (
-                                        <Image
-                                          src={normalizeImageSrc(cover.thumbUrl)}
-                                          alt={cover.title || collection.name}
-                                          width={320}
-                                          height={240}
-                                          className="h-full w-full object-cover"
-                                        />
-                                      ) : (
-                                        <div className="flex h-full w-full items-center justify-center text-lg font-semibold text-[color:var(--muted)]">
-                                          {fallback}
-                                        </div>
-                                      )}
-                                    </div>
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className="truncate text-sm font-semibold text-[color:var(--text)]">
-                                        {collection.name}
-                                      </span>
-                                      <span className="text-xs text-[color:var(--muted)]">{collection.count}</span>
-                                    </div>
-                                  </button>
-                                  <div className="absolute right-3 top-3">
-                                    <ContextMenu
-                                      buttonAriaLabel="Acciones de colección"
-                                      buttonIcon="dots"
-                                      buttonClassName="h-8 w-8 bg-[color:var(--surface-1)]"
-                                      items={[
-                                        {
-                                          label: "Renombrar",
-                                          icon: "edit",
-                                          onClick: () => setRenameCollection({ id: collection.id, name: collection.name }),
-                                          disabled: deleteCollectionPending,
-                                        },
-                                        {
-                                          label: "Borrar",
-                                          icon: "alert",
-                                          danger: true,
-                                          onClick: () => {
-                                            setDeleteCollection({ id: collection.id, name: collection.name });
-                                            setDeleteCollectionError("");
-                                          },
-                                          disabled: deleteCollectionPending,
-                                        },
-                                      ]}
-                                      menuClassName="min-w-[170px]"
-                                    />
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ) : feedLoading && feedItems.length === 0 ? (
+              {feedLoading && feedItems.length === 0 ? (
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
                   {Array.from({ length: FEED_SKELETON_COUNT }).map((_, idx) => (
                     <div
@@ -2801,34 +1514,13 @@ function ExploreContent() {
                 <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
                   {feedError}
                 </div>
-              ) : showFollowingLoading ? (
-                <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
-                  Cargando seguidos...
-                </div>
-              ) : showFollowingEmpty ? (
-                <div className="flex flex-col items-start gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-[color:var(--muted)]">
-                  <div className="space-y-1">
-                    <span className="block text-sm">{followingEmptyCopy}</span>
-                    {typeof followingTotal === "number" && followingTotal === 0 ? (
-                      <span className="block text-xs">Sigue un creador y verás aquí sus clips.</span>
-                    ) : null}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setFollowingOnly(false)}
-                    className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
-                  >
-                    Explorar
-                  </button>
-                </div>
               ) : showFeedEmpty ? (
                 <div className="flex flex-col items-start gap-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-[color:var(--muted)]">
                   <span className="text-sm">
                     {hasLocation
-                      ? `No hay PopClips dentro de ${radiusKm} km de ${locationCenterLabel}.`
+                      ? `No hay resultados cerca de ${locationCenterLabel}. Prueba ampliar el radio.`
                       : "Aún no hay PopClips. Prueba a quitar filtros o vuelve más tarde."}
                   </span>
-                  {seedError ? <span className="text-[color:var(--danger)]">{seedError}</span> : null}
                   {hasLocation ? (
                     <button
                       type="button"
@@ -2852,39 +1544,22 @@ function ExploreContent() {
               ) : (
                 <>
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
-                    {filteredFeedItems.map((item) => {
-                      const savedPreview = savedPopclipPreviewMap.get(item.id);
-                      const organizerItemId =
-                        savedPreview && !savedPreview.id.startsWith("temp-popclip-")
-                          ? savedPreview.id
-                          : null;
-                      const organizerCollectionId = organizerItemId
-                        ? savedPreview?.collectionId ?? null
-                        : null;
-                      return (
-                        <PopClipTile
-                          key={item.id}
-                          item={item}
-                          onOpen={openPopclip}
-                          profileHref={`/c/${encodeURIComponent(item.creator.handle)}`}
-                          chatHref={appendReturnTo(`/go/${encodeURIComponent(item.creator.handle)}`, router.asPath)}
-                          isFollowing={followingSet.has(item.creatorId)}
-                          onFollowChange={handleFollowChange}
-                          onFollowError={showToast}
-                          isSaved={savedPopclipSet.has(item.id)}
-                          onToggleSave={handleToggleSave}
-                          onOrganize={openOrganizer}
-                          organizerItemId={organizerItemId}
-                          organizerCollectionId={organizerCollectionId}
-                          hasLocationCenter={hasLocation}
-                          onRequestLocation={handleRequestLocation}
-                          onOpenCaption={openCaptionSheet}
-                          onCopyLink={handleCopyLink}
-                          onShare={handleShareLink}
-                          onReport={handleReportClip}
-                        />
-                      );
-                    })}
+                    {filteredFeedItems.map((item) => (
+                      <PopClipTile
+                        key={item.id}
+                        item={item}
+                        onOpen={openPopclip}
+                        profileHref={`/c/${encodeURIComponent(item.creator.handle)}`}
+                        chatHref={appendReturnTo(`/go/${encodeURIComponent(item.creator.handle)}`, returnToPath)}
+                        hasLocationCenter={hasLocation}
+                        referenceLocation={referenceLocation}
+                        onRequestLocation={handleRequestLocation}
+                        onOpenCaption={openCaptionSheet}
+                        onCopyLink={handleCopyLink}
+                        onShare={handleShareLink}
+                        onReport={handleReportClip}
+                      />
+                    ))}
                     {feedLoadingMore
                       ? loadMoreSkeletons.map((_, idx) => (
                         <div
@@ -2921,7 +1596,7 @@ function ExploreContent() {
             </HomeSectionCard>
           </div>
 
-          {(showFeedEmpty || feedError) && !savedOnly && !followingOnly ? (
+          {(showFeedEmpty || feedError) ? (
             <HomeSectionCard
               title="Creadores recomendados"
               subtitle="Basado en actividad y señales públicas."
@@ -2954,12 +1629,7 @@ function ExploreContent() {
               ) : (
                 <div className="flex flex-col gap-3">
                   {filteredCreators.map((creator) => (
-                    <HomeCreatorCard
-                      key={creator.handle}
-                      creator={creator}
-                      isSaved={savedCreatorSet.has(creator.id)}
-                      onToggleSave={() => void handleToggleCreatorSave(creator)}
-                    />
+                    <HomeCreatorCard key={creator.handle} creator={creator} />
                   ))}
                 </div>
               )}
@@ -2983,7 +1653,6 @@ function ExploreContent() {
                 </div>
               ))}
             </div>
-            <p className="mt-3 text-xs text-[color:var(--muted)]">Tip: toca … para organizar guardados.</p>
           </HomeSectionCard>
         </div>
 
@@ -3034,71 +1703,21 @@ function ExploreContent() {
           onSelect={(category) => applyCategoryFilter(category.id)}
           onClear={() => {
             setSelectedCategoryId(null);
-            updateCategoryQuery(null);
           }}
           onClose={() => setCategorySheetOpen(false)}
         />
-        <SavedOrganizerSheet
-          open={organizerOpen}
-          savedItemId={organizerItemId}
-          currentCollectionId={organizerCollectionId}
-          onClose={() => {
-            setOrganizerOpen(false);
-            setOrganizerItemId(null);
-            setOrganizerCollectionId(null);
-          }}
-          onMoved={handleOrganizerMoved}
-        />
-        <SavedCollectionCreateSheet
-          open={createCollectionOpen}
-          onClose={() => setCreateCollectionOpen(false)}
-          onCreated={handleCollectionCreated}
-        />
-        <SavedCollectionRenameSheet
-          open={Boolean(renameCollection)}
-          collectionId={renameCollection?.id ?? null}
-          initialName={renameCollection?.name ?? ""}
-          onClose={() => setRenameCollection(null)}
-          onRenamed={handleCollectionRenamed}
-        />
-        <ConfirmDialog
-          open={Boolean(deleteCollection)}
-          title="Borrar colección"
-          description={
-            deleteCollection ? `¿Borrar "${deleteCollection.name}"? Sus guardados pasarán a "Todo".` : ""
-          }
-          confirmLabel={deleteCollectionPending ? "Borrando..." : "Borrar"}
-          confirmDisabled={deleteCollectionPending}
-          error={deleteCollectionError}
-          onConfirm={handleDeleteCollection}
-          onClose={() => {
-            if (deleteCollectionPending) return;
-            setDeleteCollection(null);
-            setDeleteCollectionError("");
-          }}
-        />
-        <HomeFilterSheet
-          open={filtersOpen}
-          initialFilters={filters}
-          onApply={applyFilters}
-          onClear={clearQueryFilters}
-          onClose={() => setFiltersOpen(false)}
-          onUseMyLocation={() => openLocationPicker("geo")}
-          onSearchCity={() => openLocationPicker("search")}
-          onEditLocation={() => openLocationPicker("search")}
-          onClearLocation={handleClearLocation}
-        />
         <LocationFilterModal
-          open={locationPickerOpen}
-          mode={locationPickerMode}
+          open={filtersOpen}
           initialValue={{
-            lat: centerLat,
-            lng: centerLng,
-            label: filters.loc ?? "",
-            radiusKm,
+            lat: draftFilters.location?.place?.lat ?? null,
+            lng: draftFilters.location?.place?.lng ?? null,
+            label: draftFilters.location?.place?.label ?? null,
+            radiusKm: draftFilters.location?.radiusKm ?? DEFAULT_FILTER_KM,
+            placeId: draftFilters.location?.place?.placeId ?? null,
           }}
           minRadiusKm={MIN_FILTER_KM}
           maxRadiusKm={MAX_FILTER_KM}
+          onApply={handleApplyLocation}
           onClose={closeLocationPicker}
         />
         <PopClipViewer
@@ -3107,15 +1726,9 @@ function ExploreContent() {
           activeIndex={viewerIndex}
           onOpenChange={setViewerOpen}
           onNavigate={handleViewerNavigate}
-          onToggleSave={handleToggleSave}
-          isSaved={(item) => savedPopclipSet.has(item.id)}
-          showFollow
-          isFollowing={(item) => (item.creatorId ? followingSet.has(item.creatorId) : false)}
-          onFollowChange={handleFollowChange}
-          onFollowError={showToast}
           menuItems={buildViewerMenuItems}
           buildChatHref={(item) =>
-            appendReturnTo(`/go/${encodeURIComponent(item.creator.handle)}`, router.asPath)
+            appendReturnTo(`/go/${encodeURIComponent(item.creator.handle)}`, returnToPath)
           }
           buildProfileHref={(item) => `/c/${encodeURIComponent(item.creator.handle)}#popclips`}
         />
@@ -3155,47 +1768,6 @@ function FilterChip({
     </button>
   );
 }
-
-function sanitizeQuery(query: Record<string, string | string[] | undefined>) {
-  const cleaned: Record<string, string | string[]> = {};
-  Object.entries(query).forEach(([key, value]) => {
-    if (value === undefined) return;
-    cleaned[key] = value;
-  });
-  return cleaned;
-}
-
-function pickQueryValue(value: string | string[] | undefined) {
-  if (Array.isArray(value)) return value[0] ?? "";
-  return value ?? "";
-}
-
-function hasQueryChanged(
-  current: Record<string, string | string[] | undefined>,
-  next: Record<string, string | string[] | undefined>
-) {
-  const currentKeys = Object.keys(current).filter((k) => current[k] !== undefined);
-  const nextKeys = Object.keys(next).filter((k) => next[k] !== undefined);
-  const allKeys = new Set([...currentKeys, ...nextKeys]);
-  for (const key of Array.from(allKeys)) {
-    const u = current[key];
-    const v = next[key];
-    if (u === v) continue;
-    if (
-      Array.isArray(u) &&
-      Array.isArray(v) &&
-      u.length === v.length &&
-      u.every((val, i) => val === v[i])
-    ) {
-      continue;
-    }
-    // undefined vs missing
-    if (u === undefined && v === undefined) continue;
-    return true;
-  }
-  return false;
-}
-
 
 function mergeUniqueFeedItems(items: PopClipFeedItem[]) {
   const seen = new Set<string>();
@@ -3269,193 +1841,7 @@ function appendReturnTo(url: string, returnTo: string) {
   return `${url}${separator}returnTo=${encoded}`;
 }
 
-function SavedItemCard({
-  item,
-  onMove,
-  onRemove,
-  removing,
-}: {
-  item: SavedPreviewItem;
-  onMove: () => void;
-  onRemove: () => void;
-  removing?: boolean;
-}) {
-  const router = useRouter();
-  const typeLabel =
-    item.type === "POPCLIP" ? "PopClip" : item.type === "PACK" ? "Pack" : "Creador";
-  const thumbLabel = item.title?.trim()?.[0]?.toUpperCase() || "•";
-  const isClickable = Boolean(item.href);
-  const actionItems = [
-    { label: "Mover a...", icon: "folder", onClick: onMove, disabled: Boolean(removing) },
-    { label: "Quitar de guardados", icon: "alert", danger: true, onClick: onRemove, disabled: Boolean(removing) },
-  ];
-  const handleOpen = () => {
-    if (!item.href) return;
-    void router.push(item.href);
-  };
-  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (!item.href) return;
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      void router.push(item.href);
-    }
-  };
-
-  return (
-    <div
-      className={clsx(
-        "flex min-w-0 items-center gap-3 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3",
-        isClickable &&
-        "cursor-pointer transition hover:border-[color:var(--surface-border-hover)] hover:bg-[color:var(--surface-2)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]"
-      )}
-      role={isClickable ? "link" : undefined}
-      tabIndex={isClickable ? 0 : undefined}
-      onClick={isClickable ? handleOpen : undefined}
-      onKeyDown={isClickable ? handleKeyDown : undefined}
-    >
-      <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)]">
-        {item.thumbUrl ? (
-          <Image
-            src={normalizeImageSrc(item.thumbUrl)}
-            alt={item.title}
-            width={48}
-            height={48}
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-[color:var(--muted)]">
-            {thumbLabel}
-          </div>
-        )}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="truncate text-sm font-semibold text-[color:var(--text)]">{item.title}</span>
-          <span className="inline-flex shrink-0 rounded-full border border-[color:var(--surface-border)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--muted)]">
-            {typeLabel}
-          </span>
-        </div>
-        {item.subtitle ? (
-          <div className="truncate text-xs text-[color:var(--muted)]">{item.subtitle}</div>
-        ) : null}
-        <div className="relative z-10 mt-2 flex flex-wrap items-center gap-2">
-          <ContextMenu
-            buttonAriaLabel="Acciones de guardado"
-            buttonIcon="dots"
-            buttonClassName="relative z-20 h-9 w-9 bg-[color:var(--surface-2)] pointer-events-auto"
-            items={actionItems}
-            menuClassName="min-w-[180px]"
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ConfirmDialog({
-  open,
-  title,
-  description,
-  confirmLabel,
-  confirmDisabled,
-  error,
-  onConfirm,
-  onClose,
-}: {
-  open: boolean;
-  title: string;
-  description?: string;
-  confirmLabel: string;
-  confirmDisabled?: boolean;
-  error?: string;
-  onConfirm: () => void;
-  onClose: () => void;
-}) {
-  useEffect(() => {
-    if (!open) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onClose, open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [open]);
-
-  if (!open) return null;
-
-  return (
-    <div className="fixed inset-0 z-50">
-      <button
-        type="button"
-        aria-label="Cerrar confirmación"
-        onClick={onClose}
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-      />
-      <div className="absolute inset-x-0 bottom-0">
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={title}
-          className="mx-auto w-full max-w-lg rounded-t-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-2xl"
-        >
-          <div className="flex items-center justify-between border-b border-[color:var(--surface-border)] px-4 py-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-[color:var(--muted)]">Confirmación</p>
-              <p className="text-sm font-semibold text-[color:var(--text)]">{title}</p>
-            </div>
-            <button
-              type="button"
-              aria-label="Cerrar"
-              onClick={onClose}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] text-sm font-semibold text-[color:var(--text)] hover:border-[color:var(--surface-border-hover)]"
-            >
-              ✕
-            </button>
-          </div>
-          <div className="px-4 py-4 space-y-3">
-            {description ? <p className="text-xs text-[color:var(--muted)]">{description}</p> : null}
-            {error ? <div className="text-xs text-[color:var(--danger)]">{error}</div> : null}
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="inline-flex flex-1 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 py-2 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-3)]"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={onConfirm}
-                disabled={confirmDisabled}
-                className="inline-flex flex-1 items-center justify-center rounded-full bg-[color:var(--danger)] px-4 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-60"
-              >
-                {confirmLabel}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function HomeCreatorCard({
-  creator,
-  isSaved,
-  onToggleSave,
-}: {
-  creator: RecommendedCreator;
-  isSaved: boolean;
-  onToggleSave: () => void;
-}) {
+function HomeCreatorCard({ creator }: { creator: RecommendedCreator }) {
   const initial = creator.displayName?.trim()?.[0]?.toUpperCase() || "C";
   const [avatarFailed, setAvatarFailed] = useState(false);
   const availabilityLabel = creator.availability || (creator.vipEnabled ? "Solo VIP" : "Disponible");
@@ -3502,28 +1888,12 @@ function HomeCreatorCard({
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            aria-label={isSaved ? "Quitar guardado" : "Guardar creador"}
-            aria-pressed={isSaved}
-            onClick={onToggleSave}
-            className={clsx(
-              "inline-flex h-9 w-9 items-center justify-center rounded-full border bg-[color:var(--surface-1)] text-[color:var(--text)] transition hover:bg-[color:var(--surface-2)]",
-              isSaved
-                ? "border-[color:rgba(var(--brand-rgb),0.6)]"
-                : "border-[color:var(--surface-border)]"
-            )}
-          >
-            {isSaved ? <BookmarkCheck className="h-4 w-4" aria-hidden="true" /> : <Bookmark className="h-4 w-4" aria-hidden="true" />}
-          </button>
-          <Link
-            href={`/c/${creator.handle}`}
-            className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
-          >
-            Ver perfil
-          </Link>
-        </div>
+        <Link
+          href={`/c/${creator.handle}`}
+          className="inline-flex items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+        >
+          Ver perfil
+        </Link>
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
         {availabilityLabel ? (
