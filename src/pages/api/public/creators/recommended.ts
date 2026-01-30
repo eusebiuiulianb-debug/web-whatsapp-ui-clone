@@ -70,8 +70,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const kmRaw = parseNumber(getQueryString(req.query.radiusKm ?? req.query.r ?? req.query.km));
   const latRaw = parseNumber(getQueryString(req.query.lat ?? req.query.centerLat));
   const lngRaw = parseNumber(getQueryString(req.query.lng ?? req.query.centerLng));
-  const hasUserLocation = Number.isFinite(latRaw) && Number.isFinite(lngRaw);
-  const km = normalizeKm(kmRaw);
+  const geoRequested =
+    Number.isFinite(latRaw) &&
+    Number.isFinite(lngRaw) &&
+    Number.isFinite(kmRaw) &&
+    (kmRaw as number) > 0;
+  const km = geoRequested ? normalizeKm(kmRaw) : null;
   const avail = parseFlag(req.query.avail);
   const r24 = parseFlag(req.query.r24);
   const vip = parseFlag(req.query.vip);
@@ -79,13 +83,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const limit = Number.isFinite(limitRaw)
     ? Math.max(1, Math.min(MAX_LIMIT, Math.floor(limitRaw)))
     : DEFAULT_LIMIT;
+  const debugEnabled = getQueryString(req.query.__debug) === "1";
 
   if (process.env.NODE_ENV !== "production" && DEBUG_EXPLORE) {
     console.debug("[api.creators.recommended]", {
       lat: latRaw,
       lng: lngRaw,
       radiusKm: km,
-      hasUserLocation,
+      geoRequested,
       avail,
       r24,
       vip,
@@ -161,13 +166,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       };
     });
 
-    const userLocation = hasUserLocation
-      ? { lat: latRaw as number, lng: lngRaw as number }
-      : null;
+    const userLocation = geoRequested ? { lat: latRaw as number, lng: lngRaw as number } : null;
     const scored = candidates.map((candidate) => {
       const distanceKm =
         userLocation && candidate.locationGeohash
-          ? resolveDistanceKm(userLocation, candidate.locationGeohash, hasUserLocation ? km : null)
+          ? resolveDistanceKm(userLocation, candidate.locationGeohash, geoRequested ? km : null)
           : null;
       return {
         ...candidate,
@@ -175,6 +178,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         score: scoreCandidate(candidate, distanceKm),
       };
     });
+
+    const totalBefore = scored.length;
+    const totalWithCoords = scored.filter((item) => Number.isFinite(item.distanceKm ?? NaN)).length;
+    const geoApplied = geoRequested && totalWithCoords > 0;
 
     const applyFilters = (items: ScoredCandidate[], options: FilterOptions) => {
       return items.filter((item) => {
@@ -193,8 +200,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       requireAvail: avail,
       requireR24: r24,
       requireVip: vip,
-      requireDistance: hasUserLocation,
-      maxDistanceKm: km,
+      requireDistance: geoApplied,
+      maxDistanceKm: km ?? DEFAULT_KM,
     });
 
     if (filtered.length < 3 && (avail || r24)) {
@@ -202,13 +209,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         requireAvail: false,
         requireR24: false,
         requireVip: vip,
-        requireDistance: hasUserLocation,
-        maxDistanceKm: km,
+        requireDistance: geoApplied,
+        maxDistanceKm: km ?? DEFAULT_KM,
       });
     }
 
     const sorted = [...filtered].sort((a, b) => {
-      if (hasUserLocation) {
+      if (geoApplied) {
         const aDistance = Number.isFinite(a.distanceKm ?? NaN)
           ? (a.distanceKm as number)
           : Number.POSITIVE_INFINITY;
@@ -244,7 +251,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       allowLocation: creator.allowLocation ?? false,
     }));
 
-    return res.status(200).json({ items: payload });
+    const response: Record<string, unknown> = { items: payload };
+    if (debugEnabled) {
+      response.debug = {
+        geoActive: geoApplied,
+        lat: Number.isFinite(latRaw ?? NaN) ? latRaw : null,
+        lng: Number.isFinite(lngRaw ?? NaN) ? lngRaw : null,
+        radiusKm: Number.isFinite(km ?? NaN) ? km : null,
+        totalBefore,
+        totalWithCoords,
+        totalAfter: filtered.length,
+      };
+    }
+
+    return res.status(200).json(response);
   } catch (err) {
     console.error("Error loading recommended creators", err);
     return res.status(200).json({ items: [] });

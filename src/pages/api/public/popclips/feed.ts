@@ -115,12 +115,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     ? Math.max(1, Math.min(MAX_TAKE, Math.floor(takeRaw)))
     : DEFAULT_TAKE;
   const cursor = getQueryString(req.query.cursor);
-  const km = normalizeKm(
-    parseNumber(getQueryString(req.query.radiusKm ?? req.query.r ?? req.query.km))
-  );
+  const radiusRaw = parseNumber(getQueryString(req.query.radiusKm ?? req.query.r ?? req.query.km));
   const lat = parseNumber(getQueryString(req.query.lat ?? req.query.centerLat));
   const lng = parseNumber(getQueryString(req.query.lng ?? req.query.centerLng));
-  const hasUserLocation = Number.isFinite(lat) && Number.isFinite(lng);
+  const geoRequested =
+    Number.isFinite(lat) && Number.isFinite(lng) && Number.isFinite(radiusRaw) && (radiusRaw as number) > 0;
+  const km = geoRequested ? normalizeKm(radiusRaw) : null;
+  const debugEnabled = getQueryString(req.query.__debug) === "1";
   const avail = parseFlag(req.query.avail);
   const r24 = parseFlag(req.query.r24);
   const vip = parseFlag(req.query.vip);
@@ -130,7 +131,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       lat,
       lng,
       radiusKm: km,
-      hasUserLocation,
+      geoRequested,
       avail,
       r24,
       vip,
@@ -178,9 +179,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const hasMore = rawClips.length > take;
     const sliced = rawClips.slice(0, take);
-    const userLocation = hasUserLocation ? { lat: lat as number, lng: lng as number } : null;
+    const userLocation = geoRequested ? { lat: lat as number, lng: lng as number } : null;
 
-    const mapped = mapFeedItems(sliced, userLocation, hasUserLocation ? km : null);
+    const mapped = mapFeedItems(sliced, userLocation, geoRequested ? km : null);
+    const totalBefore = mapped.length;
+    const totalWithCoords = mapped.filter((item) => Number.isFinite(item.distanceKm ?? NaN)).length;
+    const geoApplied = geoRequested && totalWithCoords > 0;
     if (process.env.NODE_ENV !== "production" && !hasLoggedFeedShape) {
       const first = rawClips[0];
       if (first) {
@@ -198,27 +202,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       avail,
       r24,
       vip,
-      km,
-      requireDistance: hasUserLocation,
+      km: km ?? DEFAULT_KM,
+      requireDistance: geoApplied,
     });
 
     let items = strictFiltered;
     let nextCursor: string | null = hasMore ? sliced[sliced.length - 1]?.id ?? null : null;
 
-    if (!cursor && items.length < MIN_FALLBACK_ITEMS && (avail || r24 || hasUserLocation)) {
+    if (!cursor && items.length < MIN_FALLBACK_ITEMS && (avail || r24 || geoApplied)) {
       const fallbackClips = (await prisma.popClip.findMany({
         where: baseWhere,
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: take + 1,
         select: CLIP_SELECT,
       })) as unknown as FeedClipRow[];
-      const fallbackMapped = mapFeedItems(fallbackClips.slice(0, take), userLocation, hasUserLocation ? km : null);
+      const fallbackMapped = mapFeedItems(
+        fallbackClips.slice(0, take),
+        userLocation,
+        geoRequested ? km : null
+      );
       const relaxed = applyFilters(fallbackMapped, {
         avail: false,
         r24: false,
         vip,
-        km,
-        requireDistance: hasUserLocation,
+        km: km ?? DEFAULT_KM,
+        requireDistance: geoApplied,
       });
       items = mergeUniqueById([...items, ...relaxed]).slice(0, take);
       if (!nextCursor && fallbackClips.length > take) {
@@ -227,12 +235,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const itemsWithReviews = await attachCreatorReviews(items);
-    const sorted = hasUserLocation ? sortByDistance(itemsWithReviews) : boostEngagement(itemsWithReviews);
+    const sorted = geoApplied ? sortByDistance(itemsWithReviews) : boostEngagement(itemsWithReviews);
+    const totalAfter = items.length;
 
-    return res.status(200).json({
+    const payload: Record<string, unknown> = {
       items: sorted,
       nextCursor: nextCursor ?? undefined,
-    });
+    };
+    if (debugEnabled) {
+      payload.debug = {
+        geoActive: geoApplied,
+        lat: Number.isFinite(lat ?? NaN) ? lat : null,
+        lng: Number.isFinite(lng ?? NaN) ? lng : null,
+        radiusKm: Number.isFinite(km ?? NaN) ? km : null,
+        totalBefore,
+        totalWithCoords,
+        totalAfter,
+      };
+    }
+
+    return res.status(200).json(payload);
   } catch (err) {
     console.error("Error loading popclip feed", err);
     return res.status(500).json({ error: "No se pudieron cargar los PopClips" });

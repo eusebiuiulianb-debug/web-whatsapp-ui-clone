@@ -74,6 +74,7 @@ type Props = {
   organizerItemId?: string | null;
   organizerCollectionId?: string | null;
   hasLocationCenter?: boolean;
+  referenceLocation?: { lat: number; lng: number } | null;
   onRequestLocation?: () => void;
   onOpenCaption?: (item: PopClipTileItem) => void;
   onCopyLink?: (item: PopClipTileItem) => void;
@@ -94,6 +95,7 @@ export const PopClipTile = memo(function PopClipTile({
   organizerItemId,
   organizerCollectionId,
   hasLocationCenter = false,
+  referenceLocation = null,
   onRequestLocation,
   onCopyLink,
   onShare,
@@ -131,9 +133,13 @@ export const PopClipTile = memo(function PopClipTile({
   const allowLocation = item.creator.allowLocation !== false;
   const creatorLocationLabel = allowLocation ? (item.creator.locationLabel || "").trim() : "";
   const showLocationHint = variant === "explore" && Boolean(creatorLocationLabel);
+  
+  // Calcular distancia usando referenceLocation (exploreLocation)
   const hasDistance = Number.isFinite(item.distanceKm ?? NaN);
   const formattedDistance = hasDistance ? formatDistanceKm(item.distanceKm as number) : "";
-  const showActivateLocation = showLocationHint && !hasDistance && !hasLocationCenter;
+  
+  // SIEMPRE mostrar CTA solo si NO hay referenceLocation
+  const showActivateLocation = showLocationHint && !referenceLocation;
   const serviceTags = normalizeServiceTags(item.creator.offerTags);
   const visibleServiceTags = serviceTags.slice(0, 2);
   const hiddenServiceCount = Math.max(0, serviceTags.length - visibleServiceTags.length);
@@ -309,7 +315,7 @@ export const PopClipTile = memo(function PopClipTile({
                 >
                   <span>📍 {creatorLocationLabel} (aprox.) · </span>
                   <span className="text-[color:var(--brand)] underline decoration-[color:rgba(var(--brand-rgb),0.6)] underline-offset-2">
-                    Activa ubicación
+                    Cambiar ubicación
                   </span>
                 </button>
               ) : (

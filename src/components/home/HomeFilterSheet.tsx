@@ -8,7 +8,6 @@ type Props = {
   onApply: (filters: HomeFilters) => void;
   onClear: () => void;
   onClose: () => void;
-  onUseMyLocation: () => void;
   onSearchCity: () => void;
   onEditLocation: () => void;
   onClearLocation: () => void;
@@ -24,7 +23,6 @@ export function HomeFilterSheet({
   onApply,
   onClear,
   onClose,
-  onUseMyLocation,
   onSearchCity,
   onEditLocation,
   onClearLocation,
@@ -97,13 +95,6 @@ export function HomeFilterSheet({
                   <>
                     <p className="text-[11px] text-[color:var(--muted)]">Sin ubicación configurada.</p>
                     <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={onUseMyLocation}
-                        className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
-                      >
-                        Usar mi ubicación
-                      </button>
                       <button
                         type="button"
                         onClick={onSearchCity}

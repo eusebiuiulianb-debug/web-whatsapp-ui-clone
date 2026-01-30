@@ -393,6 +393,9 @@ async function main() {
       plan: "PRO",
       isVerified: true,
       offerTags: ["Sexting", "Audios", "Roleplay", "1:1", "Packs", "Extras"],
+      locationLat: 41.3851,
+      locationLng: 2.1734,
+      locationLabel: "Barcelona",
     },
     create: {
       creatorId: creator.id,
@@ -401,6 +404,9 @@ async function main() {
       plan: "PRO",
       isVerified: true,
       offerTags: ["Sexting", "Audios", "Roleplay", "1:1", "Packs", "Extras"],
+      locationLat: 41.3851,
+      locationLng: 2.1734,
+      locationLabel: "Barcelona",
     },
   });
 
@@ -1097,9 +1103,11 @@ async function main() {
       responseHours: 24,
       allowLocationMatching: true,
       showCountry: true,
-      showCityApprox: false,
+      showCityApprox: true,
       country: "España",
-      cityApprox: "Madrid",
+      cityApprox: "Barcelona",
+      locationLat: 41.3851,
+      locationLng: 2.1734,
     },
     {
       creatorId: extraCreators[0].id,
@@ -1114,7 +1122,9 @@ async function main() {
       showCountry: true,
       showCityApprox: true,
       country: "España",
-      cityApprox: "Barcelona",
+      cityApprox: "Vic",
+      locationLat: 41.9301,
+      locationLng: 2.2549,
     },
     {
       creatorId: extraCreators[1].id,
@@ -1125,11 +1135,13 @@ async function main() {
       priceMin: 25,
       priceMax: 70,
       responseHours: 18,
-      allowLocationMatching: false,
-      showCountry: false,
-      showCityApprox: false,
+      allowLocationMatching: true,
+      showCountry: true,
+      showCityApprox: true,
       country: "España",
-      cityApprox: "Valencia",
+      cityApprox: "Terrassa",
+      locationLat: 41.5667,
+      locationLng: 2.0167,
     },
     {
       creatorId: extraCreators[2].id,
@@ -1145,6 +1157,8 @@ async function main() {
       showCityApprox: true,
       country: "México",
       cityApprox: "CDMX",
+      locationLat: 19.4326,
+      locationLng: -99.1332,
     },
   ];
 
