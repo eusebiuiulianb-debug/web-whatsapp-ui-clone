@@ -321,7 +321,7 @@ export const PopClipTile = memo(function PopClipTile({
               ) : (
                 <div className="text-[10px] text-[color:var(--muted)]">
                   <span>📍 {creatorLocationLabel} (aprox.)</span>
-                  {hasDistance ? <span> · a {formattedDistance} de ti</span> : null}
+                  {hasDistance ? <span> · a {formattedDistance}</span> : null}
                 </div>
               )
             ) : null}
