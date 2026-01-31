@@ -17,6 +17,36 @@ function MyApp({ Component, pageProps }: AppProps) {
     initCrossTabEvents();
   }, []);
 
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    const handleStart = (url: string) => console.log("[routeChangeStart]", url);
+    const handleComplete = (url: string) => console.log("[routeChangeComplete]", url);
+    const handleError = (err: Error, url: string) => console.warn("[routeChangeError]", url, err);
+    router.events.on("routeChangeStart", handleStart);
+    router.events.on("routeChangeComplete", handleComplete);
+    router.events.on("routeChangeError", handleError);
+    return () => {
+      router.events.off("routeChangeStart", handleStart);
+      router.events.off("routeChangeComplete", handleComplete);
+      router.events.off("routeChangeError", handleError);
+    };
+  }, [router.events]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    const handleStart = (url: string) => console.log("[routeChangeStart]", url);
+    const handleComplete = (url: string) => console.log("[routeChangeComplete]", url);
+    const handleError = (err: Error, url: string) => console.warn("[routeChangeError]", url, err);
+    router.events.on("routeChangeStart", handleStart);
+    router.events.on("routeChangeComplete", handleComplete);
+    router.events.on("routeChangeError", handleError);
+    return () => {
+      router.events.off("routeChangeStart", handleStart);
+      router.events.off("routeChangeComplete", handleComplete);
+      router.events.off("routeChangeError", handleError);
+    };
+  }, [router.events]);
+
   return (
     <CreatorConfigProvider>
       <ConversationProvider>
