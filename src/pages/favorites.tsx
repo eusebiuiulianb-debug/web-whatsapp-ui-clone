@@ -181,7 +181,7 @@ export default function FavoritesPage() {
     [router]
   );
 
-  const returnToPath = "/favorites";
+  const returnToPath = router.asPath.split("#")[0] || "/favoritos";
 
   const renderEmpty = (message: string) => (
     <div className="space-y-3">
