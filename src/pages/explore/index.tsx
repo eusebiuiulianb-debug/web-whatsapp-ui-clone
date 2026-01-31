@@ -3,6 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import clsx from "clsx";
 import { Bookmark, BookmarkCheck, Clock, Search, X } from "lucide-react";
+import useSWR from "swr";
 import {
   useCallback,
   useEffect,
@@ -129,6 +130,9 @@ type SearchAction = {
   onSelect: () => void;
 };
 
+type FeedKey = readonly [string, string, number];
+type CreatorsKey = readonly [string, string, number];
+
 const FILTER_QUERY_KEYS = ["km", "lat", "lng", "loc", "avail", "r24", "vip"] as const;
 const FOLLOWING_QUERY_KEY = "following";
 const CATEGORY_QUERY_KEY = "cat";
@@ -137,6 +141,8 @@ const MIN_FILTER_KM = 5;
 const MAX_FILTER_KM = 200;
 const RECENT_SEARCH_KEY = "ip_recent_searches_v1";
 const MAX_RECENT_SEARCHES = 6;
+const STORAGE_KEY = "explore:appliedFilters:v1";
+const DEFAULT_FILTERS: HomeFilters = {};
 
 const readRecentSearches = () => {
   if (typeof window === "undefined") return [];
@@ -175,6 +181,19 @@ const buildRecentSearches = (term: string, current: string[]) => {
   const next = [trimmed, ...current.filter((item) => item.trim().toLowerCase() !== key)];
   return next.slice(0, MAX_RECENT_SEARCHES);
 };
+
+function isValidHomeFilters(value: unknown): value is HomeFilters {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  if (record.km != null && (typeof record.km !== "number" || !Number.isFinite(record.km))) return false;
+  if (record.lat != null && (typeof record.lat !== "number" || !Number.isFinite(record.lat))) return false;
+  if (record.lng != null && (typeof record.lng !== "number" || !Number.isFinite(record.lng))) return false;
+  if (record.loc != null && typeof record.loc !== "string") return false;
+  if (record.avail != null && typeof record.avail !== "boolean") return false;
+  if (record.r24 != null && typeof record.r24 !== "boolean") return false;
+  if (record.vip != null && typeof record.vip !== "boolean") return false;
+  return true;
+}
 
 const SEARCH_PANEL_CATEGORIES = [
   { id: "asmr", label: "ASMR", categoryId: "asmr" },
@@ -283,7 +302,6 @@ function ExploreContent() {
   const [locationPickerMode, setLocationPickerMode] = useState<"geo" | "search" | null>(null);
   const [feedItems, setFeedItems] = useState<PopClipFeedItem[]>([]);
   const [feedCursor, setFeedCursor] = useState<string | null>(null);
-  const [feedLoading, setFeedLoading] = useState(false);
   const [feedLoadingMore, setFeedLoadingMore] = useState(false);
   const [feedError, setFeedError] = useState("");
   const feedRequestKeyRef = useRef(0);
@@ -342,9 +360,24 @@ function ExploreContent() {
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [isMac, setIsMac] = useState(false);
   const [recommendedCreators, setRecommendedCreators] = useState<RecommendedCreator[]>([]);
-  const [creatorsLoading, setCreatorsLoading] = useState(false);
-  const [creatorsError, setCreatorsError] = useState("");
   const [hasHydrated, setHasHydrated] = useState(false);
+  const [storedFilters] = useState<HomeFilters>(() => {
+    if (typeof window === "undefined") return DEFAULT_FILTERS;
+    try {
+      const raw = window.sessionStorage.getItem(STORAGE_KEY);
+      if (!raw) return DEFAULT_FILTERS;
+      const parsed = JSON.parse(raw) as unknown;
+      if (!isValidHomeFilters(parsed)) {
+        window.sessionStorage.removeItem(STORAGE_KEY);
+        return DEFAULT_FILTERS;
+      }
+      return parsed;
+    } catch (_err) {
+      window.sessionStorage.removeItem(STORAGE_KEY);
+      return DEFAULT_FILTERS;
+    }
+  });
+  const lastStoredFiltersRef = useRef("");
 
   useEffect(() => {
     setHasHydrated(true);
@@ -361,29 +394,29 @@ function ExploreContent() {
     feedContext?.clear();
   }, [feedContext, viewerOpen]);
 
+  const storedQueryValues = useMemo(() => toHomeFiltersQuery(storedFilters), [storedFilters]);
+  const hasQueryFilters = useMemo(
+    () => FILTER_QUERY_KEYS.some((key) => router.query[key] != null),
+    [router.query]
+  );
   const filterQueryValues = useMemo(
     () =>
       hasHydrated
-        ? {
-            km: router.query.km,
-            lat: router.query.lat,
-            lng: router.query.lng,
-            loc: router.query.loc,
-            avail: router.query.avail,
-            r24: router.query.r24,
-            vip: router.query.vip,
-          }
-        : {
-            km: undefined,
-            lat: undefined,
-            lng: undefined,
-            loc: undefined,
-            avail: undefined,
-            r24: undefined,
-            vip: undefined,
-          },
+        ? hasQueryFilters
+          ? {
+              km: router.query.km,
+              lat: router.query.lat,
+              lng: router.query.lng,
+              loc: router.query.loc,
+              avail: router.query.avail,
+              r24: router.query.r24,
+              vip: router.query.vip,
+            }
+          : storedQueryValues
+        : storedQueryValues,
     [
       hasHydrated,
+      hasQueryFilters,
       router.query.avail,
       router.query.km,
       router.query.lat,
@@ -391,17 +424,53 @@ function ExploreContent() {
       router.query.loc,
       router.query.r24,
       router.query.vip,
+      storedQueryValues,
     ]
   );
   const filters = useMemo(
     () => parseHomeFilters(filterQueryValues),
     [filterQueryValues]
   );
-  const activeFilterCount = useMemo(() => countActiveFilters(filters), [filters]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hasLocation =
+      typeof filters.lat === "number" &&
+      Number.isFinite(filters.lat) &&
+      typeof filters.lng === "number" &&
+      Number.isFinite(filters.lng);
+    if (!hasLocation) {
+      if (lastStoredFiltersRef.current) {
+        window.sessionStorage.removeItem(STORAGE_KEY);
+        lastStoredFiltersRef.current = "";
+      }
+      return;
+    }
+    try {
+      const nextStored = JSON.stringify(filters);
+      if (nextStored !== lastStoredFiltersRef.current) {
+        window.sessionStorage.setItem(STORAGE_KEY, nextStored);
+        lastStoredFiltersRef.current = nextStored;
+      }
+    } catch (_err) {
+      // ignore storage errors
+    }
+  }, [
+    filters.avail,
+    filters.km,
+    filters.lat,
+    filters.lng,
+    filters.loc,
+    filters.r24,
+    filters.vip,
+  ]);
+  const activeFilterCount = useMemo(
+    () => countActiveFilters(filters),
+    [filters.avail, filters.km, filters.lat, filters.lng, filters.loc, filters.r24, filters.vip]
+  );
   const filterQueryString = useMemo(() => {
     const params = new URLSearchParams(toHomeFiltersQuery(filters));
     return params.toString();
-  }, [filters]);
+  }, [filters.avail, filters.km, filters.lat, filters.lng, filters.loc, filters.r24, filters.vip]);
   const savedPopclipIds = useMemo(
     () => savedItemsAll.filter((item) => item.type === "POPCLIP").map((item) => item.entityId),
     [savedItemsAll]
@@ -448,21 +517,64 @@ function ExploreContent() {
     if (rounded > MAX_FILTER_KM) return MAX_FILTER_KM;
     return rounded;
   }, [filters.km]);
+  const geoParams = useMemo(() => {
+    if (!hasLocation || centerLat === null || centerLng === null) return null;
+    return { lat: centerLat, lng: centerLng, radiusKm };
+  }, [centerLat, centerLng, hasLocation, radiusKm]);
   const hasLocationLabel = hasHydrated && Boolean((filters.loc || "").trim());
   const locationCenterLabel = useMemo(() => {
     if (!hasLocation) return "";
     const label = (filters.loc || "").trim();
     return label || "tu ubicación…";
   }, [filters.loc, hasLocation]);
-  const feedQueryString = useMemo(() => {
+  const baseQueryString = useMemo(() => {
     const params = new URLSearchParams(filterQueryString);
-    if (hasLocation && centerLat !== null && centerLng !== null) {
-      params.set("centerLat", String(centerLat));
-      params.set("centerLng", String(centerLng));
-      params.set("radiusKm", String(radiusKm));
+    if (geoParams) {
+      params.set("centerLat", String(geoParams.lat));
+      params.set("centerLng", String(geoParams.lng));
+      params.set("radiusKm", String(geoParams.radiusKm));
     }
     return params.toString();
-  }, [centerLat, centerLng, filterQueryString, hasLocation, radiusKm]);
+  }, [filterQueryString, geoParams]);
+  const stableQueryString = baseQueryString || "global";
+  const feedKey = useMemo(
+    () => ["/api/public/popclips/feed", stableQueryString, seedKey] as FeedKey,
+    [seedKey, stableQueryString]
+  );
+  const creatorsKey = useMemo(
+    () => ["/api/public/creators/recommended", stableQueryString, seedKey] as CreatorsKey,
+    [seedKey, stableQueryString]
+  );
+  const fetchFeed = useCallback(async ([endpoint, query]: FeedKey) => {
+    const params = new URLSearchParams(query === "global" ? "" : query);
+    params.set("take", String(FEED_PAGE_SIZE));
+    const res = await fetch(`${endpoint}?${params.toString()}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("feed_failed");
+    return res.json();
+  }, []);
+  const fetchCreators = useCallback(async ([endpoint, query]: CreatorsKey) => {
+    const params = new URLSearchParams(query === "global" ? "" : query);
+    params.set("limit", "12");
+    const res = await fetch(`${endpoint}?${params.toString()}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("creators_failed");
+    return res.json();
+  }, []);
+  const { data: feedData, error: feedErrorData } = useSWR(feedKey, fetchFeed, {
+    keepPreviousData: true,
+    revalidateOnFocus: false,
+    dedupingInterval: 1500,
+  });
+  const {
+    data: creatorsData,
+    error: creatorsErrorData,
+  } = useSWR(creatorsKey, fetchCreators, {
+    keepPreviousData: true,
+    revalidateOnFocus: false,
+    dedupingInterval: 1500,
+  });
+  const feedLoading = !feedData && !feedErrorData;
+  const creatorsLoading = !creatorsData && !creatorsErrorData;
+  const creatorsError = creatorsErrorData ? "No se pudieron cargar los creadores." : "";
   const searchTerm = search.trim();
   const hasSearchValue = search.length > 0;
   const showSearchPanel = isSearchOpen;
@@ -1627,47 +1739,26 @@ function ExploreContent() {
   }, []);
 
   useEffect(() => {
-    const requestKey = feedRequestKeyRef.current + 1;
-    feedRequestKeyRef.current = requestKey;
+    feedRequestKeyRef.current += 1;
     loadMoreAbortRef.current?.abort();
     loadMorePendingRef.current = false;
     setFeedLoadingMore(false);
-    const controller = new AbortController();
-    const params = new URLSearchParams(feedQueryString);
-    params.set("take", String(FEED_PAGE_SIZE));
-    const endpoint = `/api/public/popclips/feed?${params.toString()}`;
-    setFeedLoading(true);
-    setFeedError("");
-    setFeedItems([]);
     setFeedCursor(null);
     setSeedError("");
-    fetch(endpoint, { signal: controller.signal, cache: "no-store" })
-      .then(async (res) => {
-        const payload = (await res.json().catch(() => null)) as
-          | { items?: PopClipFeedItem[]; nextCursor?: string | null }
-          | null;
-        if (requestKey !== feedRequestKeyRef.current) return;
-        if (!res.ok || !payload || !Array.isArray(payload.items)) {
-          setFeedItems([]);
-          setFeedError("No se pudieron cargar los PopClips.");
-          return;
-        }
-        setFeedItems(payload.items);
-        setFeedCursor(typeof payload.nextCursor === "string" ? payload.nextCursor : null);
-      })
-      .catch((err) => {
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        if (requestKey !== feedRequestKeyRef.current) return;
-        setFeedItems([]);
-        setFeedError("No se pudieron cargar los PopClips.");
-      })
-      .finally(() => {
-        if (requestKey === feedRequestKeyRef.current && !controller.signal.aborted) {
-          setFeedLoading(false);
-        }
-      });
-    return () => controller.abort();
-  }, [feedQueryString, seedKey]);
+  }, [stableQueryString, seedKey]);
+
+  useEffect(() => {
+    if (!feedData) return;
+    const items = Array.isArray(feedData.items) ? feedData.items : [];
+    setFeedItems(items);
+    setFeedCursor(typeof feedData.nextCursor === "string" ? feedData.nextCursor : null);
+    setFeedError("");
+  }, [feedData]);
+
+  useEffect(() => {
+    if (!feedErrorData) return;
+    setFeedError("No se pudieron cargar los PopClips.");
+  }, [feedErrorData]);
 
   const selectedCategory = useMemo(
     () => HOME_CATEGORIES.find((category) => category.id === selectedCategoryId) ?? null,
@@ -2160,7 +2251,7 @@ function ExploreContent() {
     loadMoreAbortRef.current?.abort();
     const controller = new AbortController();
     loadMoreAbortRef.current = controller;
-    const params = new URLSearchParams(feedQueryString);
+    const params = new URLSearchParams(baseQueryString);
     params.set("take", String(FEED_PAGE_SIZE));
     params.set("cursor", feedCursor);
     const endpoint = `/api/public/popclips/feed?${params.toString()}`;
@@ -2191,7 +2282,7 @@ function ExploreContent() {
       }
       loadMorePendingRef.current = false;
     }
-  }, [feedCursor, feedQueryString]);
+  }, [feedCursor, baseQueryString]);
 
   const handleViewerNavigate = useCallback(
     (nextIndex: number) => {
@@ -2231,42 +2322,20 @@ function ExploreContent() {
   );
 
   useEffect(() => {
-    const params = new URLSearchParams(feedQueryString);
-    params.set("limit", "12");
-    const queryString = params.toString();
-    const endpoint = queryString
-      ? `/api/public/creators/recommended?${queryString}`
-      : "/api/public/creators/recommended";
-    const controller = new AbortController();
-    setCreatorsLoading(true);
-    setCreatorsError("");
-    fetch(endpoint, { signal: controller.signal, cache: "no-store" })
-      .then(async (res) => {
-        const payload = (await res.json().catch(() => null)) as
-          | { creators?: RecommendedCreator[]; items?: RecommendedCreator[] }
-          | null;
-        if (!res.ok || !payload) {
-          setRecommendedCreators([]);
-          setCreatorsError("No se pudieron cargar los creadores.");
-          return;
-        }
-        const creators = Array.isArray(payload.creators)
-          ? payload.creators
-          : Array.isArray(payload.items)
-          ? payload.items
-          : [];
-        setRecommendedCreators(creators);
-      })
-      .catch((err) => {
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        setRecommendedCreators([]);
-        setCreatorsError("No se pudieron cargar los creadores.");
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setCreatorsLoading(false);
-      });
-    return () => controller.abort();
-  }, [feedQueryString, seedKey]);
+    if (!creatorsData) return;
+    const payload = creatorsData as { creators?: RecommendedCreator[]; items?: RecommendedCreator[] } | null;
+    const creators = Array.isArray(payload?.creators)
+      ? payload?.creators
+      : Array.isArray(payload?.items)
+      ? payload?.items
+      : [];
+    setRecommendedCreators(creators);
+  }, [creatorsData]);
+
+  useEffect(() => {
+    if (!creatorsErrorData) return;
+    setRecommendedCreators([]);
+  }, [creatorsErrorData]);
 
   return (
     <>

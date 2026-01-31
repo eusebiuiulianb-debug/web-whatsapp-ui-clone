@@ -2,7 +2,7 @@ import clsx from "clsx";
 import { MessageCircle, Play, Sparkles } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { memo, useEffect, useRef, useState, type MouseEvent } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useRouter } from "next/router";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { Skeleton } from "../ui/Skeleton";
@@ -136,7 +136,10 @@ export const PopClipTile = memo(function PopClipTile({
   const creatorLocationLabel = allowLocation ? (item.creator.locationLabel || "").trim() : "";
   const showLocationHint = variant === "explore" && Boolean(creatorLocationLabel);
   const hasDistance = Number.isFinite(item.distanceKm ?? NaN);
-  const formattedDistance = hasDistance ? formatDistanceKm(item.distanceKm as number) : "";
+  const formattedDistance = useMemo(
+    () => (hasDistance ? formatDistanceKm(item.distanceKm as number) : ""),
+    [hasDistance, item.distanceKm]
+  );
   const resolvedHasHydrated = feedContext?.hasHydrated ?? hasHydrated;
   const resolvedLocationActive = resolvedHasHydrated
     ? feedContext?.locationActive ?? hasLocationCenter
@@ -145,7 +148,11 @@ export const PopClipTile = memo(function PopClipTile({
   const canRequestLocation = typeof requestLocation === "function";
   const showActivateLocation = showLocationHint && resolvedHasHydrated && !resolvedLocationActive && canRequestLocation;
   const showDistancePlaceholder = !hasDistance && showLocationHint && !showActivateLocation;
-  const distanceLabel = hasDistance ? formattedDistance : showDistancePlaceholder ? "… km" : "";
+  const distanceLabel = useMemo(() => {
+    if (hasDistance) return formattedDistance;
+    if (showDistancePlaceholder) return "… km";
+    return "";
+  }, [formattedDistance, hasDistance, showDistancePlaceholder]);
   const serviceTags = normalizeServiceTags(item.creator.offerTags);
   const visibleServiceTags = serviceTags.slice(0, 2);
   const hiddenServiceCount = Math.max(0, serviceTags.length - visibleServiceTags.length);
