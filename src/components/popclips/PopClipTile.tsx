@@ -12,7 +12,6 @@ import { formatDistanceKm } from "../../utils/formatDistanceKm";
 import { VerifiedInlineBadge } from "../ui/VerifiedInlineBadge";
 import { PopClipMediaActions, popClipMediaActionButtonClass } from "./PopClipMediaActions";
 import { ServicesSheet } from "./ServicesSheet";
-import { usePopClipFeedContext } from "./PopClipFeedContext";
 
 export type PopClipTileItem = {
   id: string;
@@ -75,13 +74,13 @@ type Props = {
   organizerItemId?: string | null;
   organizerCollectionId?: string | null;
   hasLocationCenter?: boolean;
+  referenceLocation?: { lat: number; lng: number } | null;
   onRequestLocation?: () => void;
   onOpenCaption?: (item: PopClipTileItem) => void;
   onCopyLink?: (item: PopClipTileItem) => void;
   onShare?: (item: PopClipTileItem) => void;
   onReport?: (item: PopClipTileItem) => void;
   showServices?: boolean;
-  hasHydrated?: boolean;
 };
 
 export const PopClipTile = memo(function PopClipTile({
@@ -96,12 +95,10 @@ export const PopClipTile = memo(function PopClipTile({
   organizerItemId,
   organizerCollectionId,
   hasLocationCenter = false,
-  onRequestLocation,
   onCopyLink,
   onShare,
   onReport,
   showServices = false,
-  hasHydrated = true,
 }: Props) {
   const router = useRouter();
   const isProfileCompact = variant === "profileCompact";
@@ -112,7 +109,6 @@ export const PopClipTile = memo(function PopClipTile({
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [isCaptionOpen, setIsCaptionOpen] = useState(false);
   const [servicesOpen, setServicesOpen] = useState(false);
-  const feedContext = usePopClipFeedContext();
   const mediaContainerRef = useRef<HTMLDivElement | null>(null);
   const captionPanelRef = useRef<HTMLDivElement | null>(null);
   const captionTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -135,17 +131,9 @@ export const PopClipTile = memo(function PopClipTile({
   const allowLocation = item.creator.allowLocation !== false;
   const creatorLocationLabel = allowLocation ? (item.creator.locationLabel || "").trim() : "";
   const showLocationHint = variant === "explore" && Boolean(creatorLocationLabel);
+  
   const hasDistance = Number.isFinite(item.distanceKm ?? NaN);
   const formattedDistance = hasDistance ? formatDistanceKm(item.distanceKm as number) : "";
-  const resolvedHasHydrated = feedContext?.hasHydrated ?? hasHydrated;
-  const resolvedLocationActive = resolvedHasHydrated
-    ? feedContext?.locationActive ?? hasLocationCenter
-    : false;
-  const requestLocation = feedContext?.onRequestLocation ?? onRequestLocation;
-  const canRequestLocation = typeof requestLocation === "function";
-  const showActivateLocation = showLocationHint && resolvedHasHydrated && !resolvedLocationActive && canRequestLocation;
-  const showDistancePlaceholder = !hasDistance && showLocationHint && !showActivateLocation;
-  const distanceLabel = hasDistance ? formattedDistance : showDistancePlaceholder ? "… km" : "";
   const serviceTags = normalizeServiceTags(item.creator.offerTags);
   const visibleServiceTags = serviceTags.slice(0, 2);
   const hiddenServiceCount = Math.max(0, serviceTags.length - visibleServiceTags.length);
@@ -269,71 +257,50 @@ export const PopClipTile = memo(function PopClipTile({
           <div className="flex min-w-0 flex-col gap-1">
             <Link
               href={profileHref}
+              legacyBehavior
+              passHref
               prefetch={false}
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={(event) => event.stopPropagation()}
-              onKeyDown={(event) => event.stopPropagation()}
-              aria-label={`Ver perfil de @${item.creator.handle}`}
-              className="inline-flex min-w-0 items-center gap-2 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1.5 text-[color:var(--text)] transition hover:bg-[color:var(--surface-3)]"
             >
-              <span className="inline-flex min-w-0 items-center gap-2">
-                <span className="h-7 w-7 shrink-0 overflow-hidden rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]">
-                  {showAvatar ? (
-                    <Image
-                      src={normalizeImageSrc(avatarSrc)}
-                      alt={item.creator.displayName}
-                      width={28}
-                      height={28}
-                      className="h-full w-full object-cover"
-                      onError={() => setAvatarFailed(true)}
-                    />
-                  ) : (
-                    <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-[color:var(--text)]">
-                      {creatorInitial}
-                    </span>
-                  )}
-                </span>
-                <span className="flex min-w-0 items-center gap-1">
-                  <span className="truncate text-xs font-semibold text-[color:var(--text)]">
-                    @{item.creator.handle}
+              <a
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+                aria-label={`Ver perfil de @${item.creator.handle}`}
+                className="inline-flex min-w-0 items-center gap-2 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2 py-1.5 text-[color:var(--text)] transition hover:bg-[color:var(--surface-3)]"
+              >
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <span className="h-7 w-7 shrink-0 overflow-hidden rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)]">
+                    {showAvatar ? (
+                      <Image
+                        src={normalizeImageSrc(avatarSrc)}
+                        alt={item.creator.displayName}
+                        width={28}
+                        height={28}
+                        className="h-full w-full object-cover"
+                        onError={() => setAvatarFailed(true)}
+                      />
+                    ) : (
+                      <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-[color:var(--text)]">
+                        {creatorInitial}
+                      </span>
+                    )}
                   </span>
-                  {item.creator.isVerified ? (
-                    <VerifiedInlineBadge collapseAt="lg" className="shrink-0" />
-                  ) : null}
+                  <span className="flex min-w-0 items-center gap-1">
+                    <span className="truncate text-xs font-semibold text-[color:var(--text)]">
+                      @{item.creator.handle}
+                    </span>
+                    {item.creator.isVerified ? (
+                      <VerifiedInlineBadge collapseAt="lg" className="shrink-0" />
+                    ) : null}
+                  </span>
                 </span>
-              </span>
+              </a>
             </Link>
             {showLocationHint ? (
-              showActivateLocation && onRequestLocation ? (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    requestLocation?.();
-                  }}
-                  className="text-left text-[10px] font-medium text-[color:var(--muted)] hover:text-[color:var(--text)]"
-                >
-                  <span>📍 {creatorLocationLabel} (aprox.) · </span>
-                  <span className="text-[color:var(--brand)] underline decoration-[color:rgba(var(--brand-rgb),0.6)] underline-offset-2">
-                    Activa ubicación
-                  </span>
-                </button>
-              ) : (
-                <div className="text-[10px] text-[color:var(--muted)]">
-                  <span>📍 {creatorLocationLabel} (aprox.)</span>
-                {distanceLabel ? (
-                  <span
-                    className={clsx(
-                      "transition-opacity duration-200",
-                      hasDistance ? "opacity-100" : "opacity-60"
-                    )}
-                  >
-                    · a {distanceLabel} de ti
-                  </span>
-                ) : null}
-                </div>
-              )
+              <div className="text-[10px] text-[color:var(--muted)]">
+                <span>📍 {creatorLocationLabel} (aprox.)</span>
+                {hasDistance ? <span> · a {formattedDistance}</span> : null}
+              </div>
             ) : null}
             {showServiceRow ? (
               <div
@@ -591,19 +558,20 @@ export const PopClipTile = memo(function PopClipTile({
           )}
         >
           <div className="flex">
-            <Link
-              href={chatHref}
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={(event) => event.stopPropagation()}
-              onKeyDown={(event) => event.stopPropagation()}
-              aria-label="Abrir chat"
-              title="Abrir chat"
-              className="flex w-full"
-            >
-              <span className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] px-4 text-[12px] font-semibold text-white shadow-sm transition hover:bg-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40">
-                <MessageCircle className="h-4 w-4" aria-hidden="true" />
-                Abrir chat
-              </span>
+            <Link href={chatHref} legacyBehavior passHref>
+              <a
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+                aria-label="Abrir chat"
+                title="Abrir chat"
+                className="flex w-full"
+              >
+                <span className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] px-4 text-[12px] font-semibold text-white shadow-sm transition hover:bg-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40">
+                  <MessageCircle className="h-4 w-4" aria-hidden="true" />
+                  Abrir chat
+                </span>
+              </a>
             </Link>
           </div>
         </div>

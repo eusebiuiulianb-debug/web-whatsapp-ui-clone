@@ -11,22 +11,28 @@ export type HomeFilters = {
 };
 
 const DEFAULT_KM = 25;
-const MIN_KM = 5;
+const MIN_KM = 1;
 const MAX_KM = 200;
 
 export function parseHomeFilters(query: ParsedUrlQuery): HomeFilters {
+  const radiusKmRaw = parseNumber(getQueryString(query.radiusKm));
+  const radiusRaw = parseNumber(getQueryString(query.r));
   const kmRaw = parseNumber(getQueryString(query.km));
-  const km = normalizeKm(kmRaw);
+  const km = normalizeKm(
+    Number.isFinite(radiusKmRaw) ? radiusKmRaw : Number.isFinite(radiusRaw) ? radiusRaw : kmRaw
+  );
   const latRaw = parseNumber(getQueryString(query.lat));
   const lngRaw = parseNumber(getQueryString(query.lng));
   const hasCoords = Number.isFinite(latRaw) && Number.isFinite(lngRaw);
+  const locLabelRaw = getQueryString(query.locLabel);
   const locRaw = getQueryString(query.loc);
+  const resolvedLoc = locLabelRaw || locRaw;
 
   return {
     km,
     lat: hasCoords ? (latRaw as number) : undefined,
     lng: hasCoords ? (lngRaw as number) : undefined,
-    loc: hasCoords && locRaw ? locRaw : undefined,
+    loc: hasCoords && resolvedLoc ? resolvedLoc : undefined,
     avail: parseFlag(query.avail) || undefined,
     r24: parseFlag(query.r24) || undefined,
     vip: parseFlag(query.vip) || undefined,
@@ -40,13 +46,13 @@ export function toHomeFiltersQuery(filters: HomeFilters): Record<string, string>
   const hasCoords = lat !== null && lng !== null;
   if (hasCoords) {
     const km = normalizeKm(filters.km);
-    if (Number.isFinite(km) && km !== DEFAULT_KM) {
-      query.km = String(km);
+    if (Number.isFinite(km)) {
+      query.radiusKm = String(km);
     }
     query.lat = String(lat);
     query.lng = String(lng);
     const loc = (filters.loc || "").trim();
-    if (loc) query.loc = loc;
+    if (loc) query.locLabel = loc;
   }
 
   if (filters.avail) query.avail = "1";

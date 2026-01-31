@@ -2019,6 +2019,16 @@ export default function PublicCreatorByHandle({
           onClose={handleCloseLocationDialog}
           value={locationDraft}
           radiusKm={locationRadiusKm}
+          onChange={(next) => {
+            const lat = typeof next.lat === "number" && Number.isFinite(next.lat) ? next.lat : null;
+            const lng = typeof next.lng === "number" && Number.isFinite(next.lng) ? next.lng : null;
+            const label = (next.label || "").trim();
+            const placeId = (next.placeId || "").trim();
+            setLocationDraft({ lat, lng, label, placeId: placeId || null });
+          }}
+          onRadiusChange={(nextKm) => {
+            setLocationRadiusKm(Math.round(nextKm));
+          }}
           onConfirm={handleSaveLocation}
           minRadiusKm={1}
           maxRadiusKm={25}

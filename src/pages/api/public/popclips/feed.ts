@@ -4,7 +4,7 @@ import type { Prisma } from "@prisma/client";
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../../lib/prisma.server";
 import { slugifyHandle } from "../../../../lib/fan/session";
-import { distanceKmFromGeohash } from "../../../../lib/geo";
+import { decodeGeohash, haversineKm } from "../../../../lib/geo";
 
 type PopClipFeedItem = {
   id: string;
@@ -50,12 +50,13 @@ type CreatorResponseTime = "INSTANT" | "LT_24H" | "LT_72H";
 const DEFAULT_TAKE = 24;
 const MAX_TAKE = 60;
 const DEFAULT_KM = 25;
-const MIN_KM = 5;
+const MIN_KM = 1;
 const MAX_KM = 200;
 const MIN_FALLBACK_ITEMS = 6;
 const DISCOVERABLE_VISIBILITY = ["PUBLIC", "DISCOVERABLE"] as const;
 const DEFAULT_PREVIEW_LIMIT = 3;
 let hasLoggedFeedShape = false;
+const DEBUG_EXPLORE = process.env.NEXT_PUBLIC_DEBUG_EXPLORE === "1";
 
 const CLIP_SELECT = {
   id: true,
@@ -114,13 +115,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     ? Math.max(1, Math.min(MAX_TAKE, Math.floor(takeRaw)))
     : DEFAULT_TAKE;
   const cursor = getQueryString(req.query.cursor);
-  const km = normalizeKm(parseNumber(getQueryString(req.query.radiusKm ?? req.query.km)));
-  const lat = parseNumber(getQueryString(req.query.centerLat ?? req.query.lat));
-  const lng = parseNumber(getQueryString(req.query.centerLng ?? req.query.lng));
-  const hasUserLocation = Number.isFinite(lat) && Number.isFinite(lng);
+  const radiusRaw = parseNumber(getQueryString(req.query.radiusKm ?? req.query.r ?? req.query.km));
+  const lat = parseNumber(getQueryString(req.query.lat ?? req.query.centerLat));
+  const lng = parseNumber(getQueryString(req.query.lng ?? req.query.centerLng));
+  const geoRequested =
+    Number.isFinite(lat) && Number.isFinite(lng) && Number.isFinite(radiusRaw) && (radiusRaw as number) > 0;
+  const km = geoRequested ? normalizeKm(radiusRaw) : null;
+  const debugEnabled = getQueryString(req.query.__debug) === "1";
   const avail = parseFlag(req.query.avail);
   const r24 = parseFlag(req.query.r24);
   const vip = parseFlag(req.query.vip);
+
+  if (process.env.NODE_ENV !== "production" && DEBUG_EXPLORE) {
+    console.debug("[api.popclips.feed]", {
+      lat,
+      lng,
+      radiusKm: km,
+      geoRequested,
+      avail,
+      r24,
+      vip,
+      take,
+      cursor,
+    });
+  }
 
   const baseWhere = {
     isActive: true,
@@ -161,9 +179,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const hasMore = rawClips.length > take;
     const sliced = rawClips.slice(0, take);
-    const userLocation = hasUserLocation ? { lat: lat as number, lng: lng as number } : null;
+    const userLocation = geoRequested ? { lat: lat as number, lng: lng as number } : null;
 
-    const mapped = mapFeedItems(sliced, userLocation);
+    const mapped = mapFeedItems(sliced, userLocation, geoRequested ? km : null);
+    const totalBefore = mapped.length;
+    const totalWithCoords = mapped.filter((item) => Number.isFinite(item.distanceKm ?? NaN)).length;
+    const geoApplied = geoRequested && totalWithCoords > 0;
     if (process.env.NODE_ENV !== "production" && !hasLoggedFeedShape) {
       const first = rawClips[0];
       if (first) {
@@ -181,27 +202,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       avail,
       r24,
       vip,
-      km,
-      requireDistance: hasUserLocation,
+      km: km ?? DEFAULT_KM,
+      requireDistance: geoApplied,
     });
 
     let items = strictFiltered;
     let nextCursor: string | null = hasMore ? sliced[sliced.length - 1]?.id ?? null : null;
 
-    if (!cursor && items.length < MIN_FALLBACK_ITEMS && (avail || r24 || hasUserLocation)) {
+    if (!cursor && items.length < MIN_FALLBACK_ITEMS && (avail || r24 || geoApplied)) {
       const fallbackClips = (await prisma.popClip.findMany({
         where: baseWhere,
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: take + 1,
         select: CLIP_SELECT,
       })) as unknown as FeedClipRow[];
-      const fallbackMapped = mapFeedItems(fallbackClips.slice(0, take), userLocation);
+      const fallbackMapped = mapFeedItems(
+        fallbackClips.slice(0, take),
+        userLocation,
+        geoRequested ? km : null
+      );
       const relaxed = applyFilters(fallbackMapped, {
         avail: false,
         r24: false,
         vip,
-        km,
-        requireDistance: hasUserLocation,
+        km: km ?? DEFAULT_KM,
+        requireDistance: geoApplied,
       });
       items = mergeUniqueById([...items, ...relaxed]).slice(0, take);
       if (!nextCursor && fallbackClips.length > take) {
@@ -210,12 +235,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const itemsWithReviews = await attachCreatorReviews(items);
-    const sorted = hasUserLocation ? sortByDistance(itemsWithReviews) : boostEngagement(itemsWithReviews);
+    const sorted = geoApplied ? sortByDistance(itemsWithReviews) : boostEngagement(itemsWithReviews);
+    const totalAfter = items.length;
 
-    return res.status(200).json({
+    const payload: Record<string, unknown> = {
       items: sorted,
       nextCursor: nextCursor ?? undefined,
-    });
+    };
+    if (debugEnabled) {
+      payload.debug = {
+        geoActive: geoApplied,
+        lat: Number.isFinite(lat ?? NaN) ? lat : null,
+        lng: Number.isFinite(lng ?? NaN) ? lng : null,
+        radiusKm: Number.isFinite(km ?? NaN) ? km : null,
+        totalBefore,
+        totalWithCoords,
+        totalAfter,
+      };
+    }
+
+    return res.status(200).json(payload);
   } catch (err) {
     console.error("Error loading popclip feed", err);
     return res.status(500).json({ error: "No se pudieron cargar los PopClips" });
@@ -243,7 +282,11 @@ function applyFilters(items: PopClipFeedItem[], options: FilterOptions) {
   });
 }
 
-function mapFeedItems(items: FeedClipRow[], userLocation: { lat: number; lng: number } | null) {
+function mapFeedItems(
+  items: FeedClipRow[],
+  userLocation: { lat: number; lng: number } | null,
+  radiusKm: number | null
+) {
   return items.map((clip) => {
     const creatorName = clip.creator?.name || "Creador";
     const handle = slugifyHandle(creatorName || "creator");
@@ -270,7 +313,9 @@ function mapFeedItems(items: FeedClipRow[], userLocation: { lat: number; lng: nu
       : "";
     const locationLabel = allowLocation ? clip.creator?.profile?.locationLabel ?? null : null;
     const distanceKm =
-      userLocation && locationGeohash ? distanceKmFromGeohash(userLocation, locationGeohash) : null;
+      userLocation && locationGeohash
+        ? resolveDistanceKm(userLocation, locationGeohash, radiusKm)
+        : null;
 
     return {
       id: clip.id,
@@ -456,6 +501,25 @@ function sortByDistance(items: PopClipFeedItem[]) {
 
 function roundDistance(distanceKm: number) {
   return Math.round(distanceKm * 10) / 10;
+}
+
+function resolveDistanceKm(
+  userLocation: { lat: number; lng: number },
+  geohash: string,
+  radiusKm: number | null
+) {
+  const decoded = decodeGeohash(geohash);
+  if (!decoded) return null;
+  if (Number.isFinite(radiusKm ?? NaN)) {
+    const rad = Math.PI / 180;
+    const latDelta = (radiusKm as number) / 111;
+    const lngDelta = (radiusKm as number) / (111 * Math.cos(userLocation.lat * rad));
+    if (Math.abs(decoded.lat - userLocation.lat) > latDelta) return null;
+    if (Math.abs(decoded.lng - userLocation.lng) > lngDelta) return null;
+  }
+  const distance = haversineKm(userLocation, decoded);
+  if (!Number.isFinite(distance)) return null;
+  return distance;
 }
 
 function normalizeOfferTags(value: unknown): string[] {

@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { ReactNode, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import type { HomeFilters } from "../../lib/homeFilters";
 
 type Props = {
@@ -8,14 +8,13 @@ type Props = {
   onApply: (filters: HomeFilters) => void;
   onClear: () => void;
   onClose: () => void;
-  onUseMyLocation: () => void;
   onSearchCity: () => void;
   onEditLocation: () => void;
   onClearLocation: () => void;
 };
 
 const DEFAULT_KM = 25;
-const MIN_KM = 5;
+const MIN_KM = 1;
 const MAX_KM = 200;
 
 export function HomeFilterSheet({
@@ -24,7 +23,6 @@ export function HomeFilterSheet({
   onApply,
   onClear,
   onClose,
-  onUseMyLocation,
   onSearchCity,
   onEditLocation,
   onClearLocation,
@@ -41,11 +39,7 @@ export function HomeFilterSheet({
   const hasLocation = hasCoords(draft);
   const locationLabel = (draft.loc || "").trim();
   const locationDisplay = locationLabel || (hasLocation ? "Mi ubicación" : "Sin ubicación");
-  const handleCallback =
-    (callback: () => void) => (event?: ReactMouseEvent<HTMLButtonElement>) => {
-      event?.stopPropagation();
-      callback();
-    };
+  const locationSummary = hasLocation ? `${locationDisplay} · ${kmValue} km` : "Sin ubicación";
 
   return (
     <BottomSheet open={open} onClose={onClose}>
@@ -70,80 +64,46 @@ export function HomeFilterSheet({
           <div className="mt-4 space-y-5">
             <div>
               <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold text-[color:var(--muted)]">Radio</p>
-                <span className="text-xs text-[color:var(--muted)]">{kmValue} km</span>
-              </div>
-              <input
-                type="range"
-                min={MIN_KM}
-                max={MAX_KM}
-                step={5}
-                value={kmValue}
-                onChange={(event) =>
-                  setDraft((prev) => ({ ...prev, km: Number(event.target.value) }))
-                }
-                disabled={!hasLocation}
-                className="mt-2 w-full disabled:cursor-not-allowed disabled:opacity-60"
-              />
-              {hasLocation ? (
-                <p className="mt-2 text-[11px] text-[color:var(--muted)]">
-                  Mostraremos resultados dentro de {kmValue} km desde {locationDisplay} (aprox.).
-                </p>
-              ) : (
-                <p className="mt-2 text-[11px] text-[color:var(--muted)]">
-                  Usa una ubicación para filtrar por cercanía.
-                </p>
-              )}
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between">
                 <p className="text-xs font-semibold text-[color:var(--muted)]">Ubicación</p>
               </div>
+              <p className="mt-1 text-xs text-[color:var(--muted)]">{locationSummary}</p>
               <div className="mt-3 space-y-3 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-3">
                 {hasLocation ? (
-                  <div className="space-y-3">
+                  <>
                     <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                      <span className="font-semibold text-[color:var(--text)]">{locationDisplay}</span>
+                      <span className="font-semibold text-[color:var(--text)]">{locationDisplay} (aprox.)</span>
                       <span className="text-[color:var(--muted)]">{kmValue} km</span>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        onClick={handleCallback(onEditLocation)}
+                        onClick={onEditLocation}
                         className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                       >
                         Editar
                       </button>
                       <button
                         type="button"
-                        onClick={handleCallback(onClearLocation)}
+                        onClick={onClearLocation}
                         className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                       >
                         Quitar ubicación
                       </button>
                     </div>
-                  </div>
+                  </>
                 ) : (
-                  <div className="space-y-2">
-                    <p className="text-xs text-[color:var(--muted)]">Sin ubicación</p>
+                  <>
+                    <p className="text-[11px] text-[color:var(--muted)]">Sin ubicación configurada.</p>
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        onClick={handleCallback(onUseMyLocation)}
-                        className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
-                      >
-                        Usar mi ubicación
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleCallback(onSearchCity)}
+                        onClick={onSearchCity}
                         className="inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-3 py-1 text-xs font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
                       >
                         Buscar ciudad
                       </button>
                     </div>
-                  </div>
+                  </>
                 )}
               </div>
             </div>

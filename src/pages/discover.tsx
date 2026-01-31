@@ -239,6 +239,7 @@ export default function DiscoverPage() {
   }, []);
 
   const handleResetFilters = useCallback(() => {
+    // 1. Limpiar filtros en estado
     setFilters({
       availability: null,
       responseTime: null,
@@ -250,6 +251,18 @@ export default function DiscoverPage() {
     });
     setSearchInput("");
     setDebouncedSearch("");
+    
+    // 2. Limpiar localStorage para evitar persistencia
+    if (typeof window !== "undefined" && window.localStorage) {
+      try {
+        const keysToRemove = Object.keys(window.localStorage).filter(
+          key => key.startsWith("novsy_discover") || key.startsWith("novsy_filter")
+        );
+        keysToRemove.forEach(key => window.localStorage.removeItem(key));
+      } catch (err) {
+        console.warn("No se pudo limpiar localStorage", err);
+      }
+    }
   }, []);
 
   return (
@@ -320,8 +333,26 @@ export default function DiscoverPage() {
               {error}
             </div>
           ) : items.length === 0 ? (
-            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
-              No hay resultados con estos filtros.
+            <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4">
+              <p className="text-sm font-semibold text-[color:var(--text)]">
+                No hay creadores con estos filtros
+              </p>
+              <p className="mt-2 text-sm text-[color:var(--muted)]">
+                Intenta ajustar los filtros o{" "}
+                <button
+                  type="button"
+                  onClick={handleResetFilters}
+                  className="font-semibold text-[color:var(--brand)] hover:underline focus:outline-none focus:underline"
+                >
+                  reiniciar la búsqueda
+                </button>
+                .
+              </p>
+              {activeChips.length > 0 && (
+                <p className="mt-2 text-xs text-[color:var(--muted)]">
+                  Filtros activos: {activeChips.map(c => c.label).join(", ")}
+                </p>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -446,11 +477,13 @@ function FiltersSheet({
   const [draft, setDraft] = useState<FiltersState>(state);
   const [geoLoading, setGeoLoading] = useState(false);
   const [geoError, setGeoError] = useState("");
+  const [applying, setApplying] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setDraft(state);
     setGeoError("");
+    setApplying(false);
   }, [open, state]);
 
   const toggleTag = (tag: string) => {
@@ -487,6 +520,15 @@ function FiltersSheet({
       },
       { enableHighAccuracy: false, maximumAge: 60000, timeout: 8000 }
     );
+  };
+
+  const handleApply = () => {
+    setApplying(true);
+    // Pequeño delay para mostrar feedback visual
+    setTimeout(() => {
+      onApply(draft);
+      // Reset se hace automáticamente en useEffect cuando se cierra
+    }, 150);
   };
 
   const handleReset = () => {
@@ -672,7 +714,7 @@ function FiltersSheet({
         </div>
       </div>
 
-      <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
+      <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-between">
         <button
           type="button"
           onClick={handleReset}
@@ -680,13 +722,24 @@ function FiltersSheet({
         >
           Reiniciar filtros
         </button>
-        <button
-          type="button"
-          onClick={() => onApply(draft)}
-          className="inline-flex h-10 items-center justify-center rounded-full bg-[color:var(--brand-strong)] px-4 text-sm font-semibold text-[color:var(--surface-0)] hover:bg-[color:var(--brand)]"
-        >
-          Aplicar filtros
-        </button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={applying}
+            className="inline-flex h-10 items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)] disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={handleApply}
+            disabled={applying}
+            className="inline-flex h-10 items-center justify-center rounded-full bg-[color:var(--brand-strong)] px-4 text-sm font-semibold text-[color:var(--surface-0)] hover:bg-[color:var(--brand)] disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {applying ? "Filtrando..." : "Aplicar filtros"}
+          </button>
+        </div>
       </div>
     </BottomSheet>
   );

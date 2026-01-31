@@ -7,6 +7,17 @@ import { MAP_ATTRIBUTION, MAP_TILE_URL } from "../../lib/mapTiles";
 
 const DEFAULT_CITY_RADIUS_METERS = 2000;
 
+function safeInvalidate(map: LeafletMap) {
+  try {
+    const el = map.getContainer?.();
+    if (!el || !el.isConnected) return;
+    if (el.clientWidth === 0 || el.clientHeight === 0) return;
+    map.invalidateSize({ animate: false });
+  } catch {
+    // ignore invalidation errors
+  }
+}
+
 type Props = {
   geohash: string;
   radiusKm?: number | null;
@@ -46,6 +57,10 @@ export default function LocationMapClient({ geohash, radiusKm, onMapReady }: Pro
       dragging={false}
       keyboard={false}
       attributionControl={false}
+      zoomAnimation={false}
+      fadeAnimation={false}
+      markerZoomAnimation={false}
+      inertia={false}
       className="h-full w-full"
     >
       <MapReady onReady={onMapReady} />
@@ -79,9 +94,17 @@ function decodeGeohash(value: string) {
 function MapInvalidateSize() {
   const map = useMap();
   useEffect(() => {
-    const raf = window.requestAnimationFrame(() => map.invalidateSize());
-    const timeout = window.setTimeout(() => map.invalidateSize(), 160);
+    let cancelled = false;
+    const raf = window.requestAnimationFrame(() => {
+      if (cancelled) return;
+      safeInvalidate(map);
+    });
+    const timeout = window.setTimeout(() => {
+      if (cancelled) return;
+      safeInvalidate(map);
+    }, 160);
     return () => {
+      cancelled = true;
       window.cancelAnimationFrame(raf);
       window.clearTimeout(timeout);
     };
@@ -111,7 +134,7 @@ function FitCircleBounds({
     const run = () => {
       const safeRadius = Math.max(50, radiusMeters || 1000);
       const bounds = L.latLng(center[0], center[1]).toBounds(safeRadius * 2);
-      map.invalidateSize();
+      safeInvalidate(map);
       map.fitBounds(bounds, { padding: [24, 24] });
     };
     map.whenReady(() => {

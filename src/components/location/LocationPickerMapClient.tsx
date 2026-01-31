@@ -13,6 +13,17 @@ type Props = {
 
 const MIN_RADIUS_METERS = 500;
 
+function safeInvalidate(map: LeafletMap) {
+  try {
+    const el = map.getContainer?.();
+    if (!el || !el.isConnected) return;
+    if (el.clientWidth === 0 || el.clientHeight === 0) return;
+    map.invalidateSize({ animate: false });
+  } catch {
+    // ignore invalidation errors
+  }
+}
+
 export default function LocationPickerMapClient({ center, radiusKm, onCenterChange, onMapReady }: Props) {
   const centerPoint = useMemo(() => [center.lat, center.lng] as [number, number], [center.lat, center.lng]);
   const radiusMeters = useMemo(() => {
@@ -37,16 +48,17 @@ export default function LocationPickerMapClient({ center, radiusKm, onCenterChan
       zoom={12}
       scrollWheelZoom
       attributionControl={false}
+      zoomAnimation={false}
+      fadeAnimation={false}
+      markerZoomAnimation={false}
+      inertia={false}
       className="h-full w-full"
     >
       <MapReady onReady={onMapReady} />
       <MapInvalidateSize />
       <MapFitBounds center={centerPoint} radiusMeters={radiusMeters} />
       <MapClickHandler onCenterChange={onCenterChange} />
-      <TileLayer
-        url={MAP_TILE_URL}
-        attribution={MAP_ATTRIBUTION}
-      />
+      <TileLayer url={MAP_TILE_URL} attribution={MAP_ATTRIBUTION} />
       <Circle
         center={centerPoint}
         radius={radiusMeters}
@@ -79,15 +91,7 @@ function DraggableMarker({
     [onCenterChange]
   );
 
-  return (
-    <Marker
-      draggable
-      position={center}
-      icon={icon}
-      ref={markerRef}
-      eventHandlers={eventHandlers}
-    />
-  );
+  return <Marker draggable position={center} icon={icon} ref={markerRef} eventHandlers={eventHandlers} />;
 }
 
 function MapClickHandler({
@@ -106,9 +110,17 @@ function MapClickHandler({
 function MapInvalidateSize() {
   const map = useMap();
   useEffect(() => {
-    const raf = window.requestAnimationFrame(() => map.invalidateSize());
-    const timeout = window.setTimeout(() => map.invalidateSize(), 160);
+    let cancelled = false;
+    const raf = window.requestAnimationFrame(() => {
+      if (cancelled) return;
+      safeInvalidate(map);
+    });
+    const timeout = window.setTimeout(() => {
+      if (cancelled) return;
+      safeInvalidate(map);
+    }, 160);
     return () => {
+      cancelled = true;
       window.cancelAnimationFrame(raf);
       window.clearTimeout(timeout);
     };
