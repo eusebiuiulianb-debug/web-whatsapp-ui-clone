@@ -154,7 +154,7 @@ export function DesktopMenuNav({ className }: { className?: string }) {
 
   const handleSaved = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
-    handleNav("/favorites");
+    handleNav("/favoritos");
   };
 
   return (
