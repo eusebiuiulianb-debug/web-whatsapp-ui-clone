@@ -4,6 +4,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import clsx from "clsx";
 import { Clock, Search, X } from "lucide-react";
+import useSWR from "swr";
 import {
   useCallback,
   useEffect,
@@ -28,6 +29,13 @@ import { Skeleton } from "../../components/ui/Skeleton";
 import { VerifiedInlineBadge } from "../../components/ui/VerifiedInlineBadge";
 import { useRouter } from "next/router";
 import { subscribeCreatorStatusUpdates } from "../../lib/creatorStatusEvents";
+import {
+  SAVED_POPCLIPS_KEY,
+  buildSavedPopclipMap,
+  fetchSavedPopclips,
+  removeSavedPopclip,
+  upsertSavedPopclip,
+} from "../../lib/savedPopclips";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 
 const FEED_PAGE_SIZE = 24;
@@ -327,6 +335,16 @@ function ExploreContent() {
   const [creatorsLoading, setCreatorsLoading] = useState(false);
   const [creatorsError, setCreatorsError] = useState("");
   const lastExploreDebugRef = useRef("");
+  const { data: savedPopclipsData, mutate: mutateSavedPopclips } = useSWR(
+    SAVED_POPCLIPS_KEY,
+    fetchSavedPopclips,
+    { revalidateOnFocus: false }
+  );
+  const savedPopclips = savedPopclipsData?.items;
+  const savedPopclipMap = useMemo(
+    () => buildSavedPopclipMap(savedPopclips ?? []),
+    [savedPopclips]
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -651,6 +669,93 @@ function ExploreContent() {
       }, duration);
     },
     []
+  );
+
+  const handleToggleSave = useCallback(
+    async (item: PopClipTileItem) => {
+      const current = savedPopclipMap[item.id];
+      const wasSaved = Boolean(current);
+      const nextSaved = !wasSaved;
+      const tempId = `temp-popclip-${item.id}`;
+      mutateSavedPopclips(
+        (prev) => {
+          const items = prev?.items ?? [];
+          if (nextSaved) {
+            return {
+              items: upsertSavedPopclip(items, {
+                id: tempId,
+                entityId: item.id,
+                collectionId: null,
+              }),
+            };
+          }
+          return { items: removeSavedPopclip(items, item.id) };
+        },
+        false
+      );
+
+      try {
+        const res = await fetch("/api/saved/toggle", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "POPCLIP", entityId: item.id }),
+        });
+        const payload = (await res.json().catch(() => null)) as
+          | { saved?: boolean; savedItemId?: string; collectionId?: string | null }
+          | null;
+        if (!res.ok || !payload || typeof payload.saved !== "boolean") {
+          if (res.status === 401) throw new Error("AUTH_REQUIRED");
+          throw new Error("SAVE_FAILED");
+        }
+        if (payload.saved !== nextSaved) {
+          await mutateSavedPopclips();
+        } else if (payload.saved && payload.savedItemId) {
+          mutateSavedPopclips(
+            (prev) => {
+              const items = prev?.items ?? [];
+              return {
+                items: upsertSavedPopclip(items, {
+                  id: payload.savedItemId as string,
+                  entityId: item.id,
+                  collectionId: payload.collectionId ?? null,
+                }),
+              };
+            },
+            false
+          );
+        } else if (!payload.saved) {
+          showToast("Quitado de guardados");
+        }
+      } catch (err) {
+        mutateSavedPopclips(
+          (prev) => {
+            const items = prev?.items ?? [];
+            if (nextSaved) {
+              return { items: removeSavedPopclip(items, item.id) };
+            }
+            return {
+              items: upsertSavedPopclip(items, {
+                id: current?.savedItemId ?? tempId,
+                entityId: item.id,
+                collectionId: current?.collectionId ?? null,
+              }),
+            };
+          },
+          false
+        );
+        if (err instanceof Error && err.message === "AUTH_REQUIRED") {
+          showToast("Inicia sesion para guardar.");
+        } else {
+          showToast("No se pudo actualizar guardados.");
+        }
+      }
+    },
+    [mutateSavedPopclips, savedPopclipMap, showToast]
+  );
+
+  const isPopclipSaved = useCallback(
+    (item: PopClipTileItem) => Boolean(savedPopclipMap[item.id]),
+    [savedPopclipMap]
   );
 
   const persistRecentSearch = useCallback((value: string) => {
@@ -1599,6 +1704,8 @@ function ExploreContent() {
                         onOpen={openPopclip}
                         profileHref={`/c/${encodeURIComponent(item.creator.handle)}`}
                         chatHref={appendReturnTo(`/go/${encodeURIComponent(item.creator.handle)}`, returnToPath)}
+                        isSaved={Boolean(savedPopclipMap[item.id])}
+                        onToggleSave={handleToggleSave}
                         hasLocationCenter={hasLocation}
                         referenceLocation={referenceLocation}
                         onRequestLocation={handleRequestLocation}
@@ -1774,6 +1881,8 @@ function ExploreContent() {
           activeIndex={viewerIndex}
           onOpenChange={setViewerOpen}
           onNavigate={handleViewerNavigate}
+          onToggleSave={handleToggleSave}
+          isSaved={isPopclipSaved}
           menuItems={buildViewerMenuItems}
           buildChatHref={(item) =>
             appendReturnTo(`/go/${encodeURIComponent(item.creator.handle)}`, returnToPath)
