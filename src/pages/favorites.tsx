@@ -1,11 +1,12 @@
 import Head from "next/head";
 import Link from "next/link";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import { useRouter } from "next/router";
 import { HomeSectionCard } from "../components/home/HomeSectionCard";
 import { PopClipTile, type PopClipTileItem } from "../components/popclips/PopClipTile";
 import { Skeleton } from "../components/ui/Skeleton";
+import { DesktopMenuNav } from "../components/navigation/DesktopMenuNav";
 import {
   SAVED_POPCLIPS_KEY,
   buildSavedPopclipMap,
@@ -43,6 +44,15 @@ export default function FavoritesPage() {
   const [activeTab, setActiveTab] = useState<TabId>("popclips");
   const [toast, setToast] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resolveTab = useCallback((value: unknown): TabId => {
+    const raw = Array.isArray(value) ? value[0] : value;
+    if (typeof raw !== "string") return "popclips";
+    const normalized = raw.trim().toLowerCase();
+    if (normalized === "creators" || normalized === "packs" || normalized === "popclips") {
+      return normalized as TabId;
+    }
+    return "popclips";
+  }, []);
   const { data: savedPopclipsData, error: savedError, mutate: mutateSavedPopclips } = useSWR(
     SAVED_POPCLIPS_KEY,
     fetchSavedPopclips,
@@ -57,6 +67,11 @@ export default function FavoritesPage() {
     () => (savedPopclips ?? []).map((entry) => entry.entityId).filter(Boolean),
     [savedPopclips]
   );
+  useEffect(() => {
+    if (!router.isReady) return;
+    const nextTab = resolveTab(router.query.tab);
+    setActiveTab(nextTab);
+  }, [resolveTab, router.isReady, router.query.tab]);
   const shouldLoadPopclips = activeTab === "popclips" && savedIds.length > 0;
   const { data: popclipsData, error: popclipsError } = useSWR(
     shouldLoadPopclips ? ["/api/public/popclips/by-ids", savedIds] : null,
@@ -178,7 +193,7 @@ export default function FavoritesPage() {
         href="/explore"
         className="inline-flex w-fit items-center justify-center rounded-full bg-[color:var(--brand-strong)] px-4 py-2 text-sm font-semibold text-[color:var(--surface-0)] hover:bg-[color:var(--brand)]"
       >
-        Explorar
+        Volver a explorar
       </Link>
     </div>
   );
@@ -190,14 +205,19 @@ export default function FavoritesPage() {
       </Head>
 
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 md:px-6 lg:px-8">
-        <div className="space-y-1">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[color:var(--muted)]">
-            FAVORITOS
-          </p>
-          <h1 className="text-2xl font-semibold text-[color:var(--text)]">Tus guardados</h1>
-          <p className="text-sm text-[color:var(--muted)]">
-            Aqui veras los creadores, packs y PopClips que marcaste como favoritos.
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[color:var(--muted)]">
+              FAVORITOS
+            </p>
+            <h1 className="text-2xl font-semibold text-[color:var(--text)]">Tus guardados</h1>
+            <p className="text-sm text-[color:var(--muted)]">
+              Aqui veras los creadores, packs y PopClips que marcaste como favoritos.
+            </p>
+          </div>
+          <div className="hidden xl:flex">
+            <DesktopMenuNav className="inline-flex" />
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -205,7 +225,14 @@ export default function FavoritesPage() {
             <button
               key={tab.id}
               type="button"
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => {
+                setActiveTab(tab.id);
+                const nextQuery = { ...router.query, tab: tab.id };
+                void router.replace({ pathname: router.pathname, query: nextQuery }, undefined, {
+                  shallow: true,
+                  scroll: false,
+                });
+              }}
               className={
                 activeTab === tab.id
                   ? "inline-flex items-center rounded-full border border-[color:rgba(var(--brand-rgb),0.6)] bg-[color:rgba(var(--brand-rgb),0.16)] px-4 py-2 text-sm font-semibold text-[color:var(--text)]"
