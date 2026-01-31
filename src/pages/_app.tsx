@@ -17,6 +17,24 @@ function MyApp({ Component, pageProps }: AppProps) {
     initCrossTabEvents();
   }, []);
 
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    if (typeof window === "undefined") return;
+    const win = window as typeof window & { __navHistoryPatched?: boolean };
+    if (win.__navHistoryPatched) return;
+    win.__navHistoryPatched = true;
+    const originalPushState = window.history.pushState;
+    const originalReplaceState = window.history.replaceState;
+    window.history.pushState = function (...args) {
+      console.trace("[NAV] pushState called", args);
+      return originalPushState.apply(this, args as Parameters<History["pushState"]>);
+    };
+    window.history.replaceState = function (...args) {
+      console.trace("[NAV] replaceState called", args);
+      return originalReplaceState.apply(this, args as Parameters<History["replaceState"]>);
+    };
+  }, []);
+
   return (
     <CreatorConfigProvider>
       <ConversationProvider>

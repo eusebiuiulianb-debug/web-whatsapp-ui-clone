@@ -15,7 +15,7 @@ type TabItem = {
 
 const TABS: TabItem[] = [
   { key: "home", label: "Inicio", href: "/explore", icon: Home },
-  { key: "saved", label: "Guardados", href: "/favoritos", icon: Bookmark },
+  { key: "saved", label: "Guardados", href: "/favorites", icon: Bookmark },
   { key: "upload", label: "Subir", href: "/creator/panel", icon: Plus, primary: true },
   { key: "chats", label: "Chats", href: "/creator/manager?tab=chats", icon: Inbox },
   { key: "me", label: "Tu", href: "/creator/panel", icon: User },
@@ -208,7 +208,7 @@ export function MobileTabBar() {
                           scrollToTop();
                           return;
                         }
-                      void router.push("/favoritos").then(scrollToTop);
+                      void router.push("/favorites").then(scrollToTop);
                     }
                   : undefined;
             return (
