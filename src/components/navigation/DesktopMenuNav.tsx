@@ -163,8 +163,7 @@ export function DesktopMenuNav({ className }: { className?: string }) {
     navigate(href);
   };
 
-  const handleHome = (event: MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
+  const handleHome = () => {
     if (isExplore && !queryString) {
       window.scrollTo({ top: 0, behavior: "smooth" });
       setMenuOpen(false);
@@ -173,8 +172,7 @@ export function DesktopMenuNav({ className }: { className?: string }) {
     handleNav("/explore");
   };
 
-  const handleSaved = (event: MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
+  const handleSaved = () => {
     handleNav("/favoritos");
   };
 
