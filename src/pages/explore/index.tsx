@@ -123,6 +123,7 @@ const MIN_FILTER_KM = 1;
 const MAX_FILTER_KM = 200;
 const RECENT_SEARCH_KEY = "ip_recent_searches_v1";
 const MAX_RECENT_SEARCHES = 6;
+const STORAGE_KEY = "explore:appliedFilters:v1";
 
 function cloneExploreFilters(filters: ExploreFilters): ExploreFilters {
   if (!filters.location?.place) return {};
@@ -136,6 +137,23 @@ function cloneExploreFilters(filters: ExploreFilters): ExploreFilters {
       radiusKm,
     },
   };
+}
+
+function isValidExploreFilters(value: unknown): value is ExploreFilters {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  if (!("location" in record)) return true;
+  if (record.location == null) return true;
+  if (typeof record.location !== "object" || Array.isArray(record.location)) return false;
+  const location = record.location as Record<string, unknown>;
+  if (typeof location.radiusKm !== "number" || !Number.isFinite(location.radiusKm)) return false;
+  if (typeof location.place !== "object" || location.place === null || Array.isArray(location.place)) return false;
+  const place = location.place as Record<string, unknown>;
+  if (typeof place.label !== "string") return false;
+  if (typeof place.lat !== "number" || !Number.isFinite(place.lat)) return false;
+  if (typeof place.lng !== "number" || !Number.isFinite(place.lng)) return false;
+  if (place.placeId != null && typeof place.placeId !== "string") return false;
+  return true;
 }
 
 const readRecentSearches = () => {
@@ -309,6 +327,36 @@ function ExploreContent() {
   const [creatorsLoading, setCreatorsLoading] = useState(false);
   const [creatorsError, setCreatorsError] = useState("");
   const lastExploreDebugRef = useRef("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const stored = window.sessionStorage.getItem(STORAGE_KEY);
+      if (!stored) return;
+      const parsed = JSON.parse(stored) as unknown;
+      if (!isValidExploreFilters(parsed)) {
+        window.sessionStorage.removeItem(STORAGE_KEY);
+        return;
+      }
+      setAppliedFilters(parsed);
+    } catch (_err) {
+      window.sessionStorage.removeItem(STORAGE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hasLocation = Boolean(appliedFilters.location?.place);
+    if (!hasLocation) {
+      window.sessionStorage.removeItem(STORAGE_KEY);
+      return;
+    }
+    try {
+      window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(appliedFilters));
+    } catch (_err) {
+      // Ignore storage quota errors.
+    }
+  }, [appliedFilters]);
 
   useEffect(() => {
     if (viewerOpen) return;
