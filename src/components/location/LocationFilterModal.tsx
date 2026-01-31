@@ -257,10 +257,7 @@ export function LocationFilterModal({
   };
 
   const handleApply = () => {
-    if (!hasSelectedPlace || !selectedPlace) {
-      applyAndClose(null);
-      return;
-    }
+    if (!hasSelectedPlace || !selectedPlace) return;
     const label = selectedPlace.label || resolvedLabel || "Ubicacion aproximada";
     if (DEBUG_LOC) {
       console.log("[loc] apply click", {
@@ -325,6 +322,28 @@ export function LocationFilterModal({
                 onChange={(event) => {
                   setGeoQuery(event.target.value);
                   setSelectedPlace(null);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    const hasSuggestions = geoResults.length > 0;
+                    const queryMatches =
+                      hasSelectedPlace &&
+                      selectedPlace &&
+                      geoQuery.trim() === selectedPlace.label.trim();
+                    if (hasSuggestions && !queryMatches) {
+                      event.preventDefault();
+                      handleSelectGeoResult(geoResults[0]);
+                    }
+                    return;
+                  }
+                  if (event.key === "Escape") {
+                    if (geoResults.length > 0) {
+                      event.preventDefault();
+                      geoRequestRef.current += 1;
+                      setGeoResults([]);
+                      setSearchLoading(false);
+                    }
+                  }
                 }}
                 placeholder="Buscar ciudad"
                 aria-label="Buscar ciudad"
@@ -403,7 +422,7 @@ export function LocationFilterModal({
               <button
                 type="button"
                 onClick={handleApply}
-                disabled={applyPending}
+                disabled={!hasSelectedPlace || applyPending}
                 className="inline-flex h-10 items-center justify-center rounded-full bg-[color:var(--brand-strong)] px-4 text-sm font-semibold text-[color:var(--surface-0)] hover:bg-[color:var(--brand)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {applyPending ? "Aplicando..." : "Aplicar"}
