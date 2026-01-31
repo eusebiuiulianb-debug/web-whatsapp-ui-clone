@@ -98,11 +98,14 @@ export function LocationFilterModal({
   const [geoQuery, setGeoQuery] = useState("");
   const [geoResults, setGeoResults] = useState<GeoSearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
   const [applyPending, setApplyPending] = useState(false);
   const [selectedPlace, setSelectedPlace] = useState<SelectedPlace | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const wasOpenRef = useRef(false);
   const geoRequestRef = useRef(0);
+
+  const trimmedQuery = geoQuery.trim();
 
   const hasSelectedPlace =
     typeof selectedPlace?.lat === "number" &&
@@ -149,6 +152,7 @@ export function LocationFilterModal({
       setGeoResults([]);
       setSearchLoading(false);
       setApplyPending(false);
+      setIsOpen(false);
       setSelectedPlace(nextState.selectedPlace);
     }
     if (!open) {
@@ -156,6 +160,7 @@ export function LocationFilterModal({
         console.log("[loc] modal close");
       }
       setApplyPending(false);
+      setIsOpen(false);
     }
     wasOpenRef.current = open;
   }, [initialValue, maxRadiusKm, minRadiusKm, open]);
@@ -185,19 +190,21 @@ export function LocationFilterModal({
 
   useEffect(() => {
     if (!open) return;
-    const trimmed = geoQuery.trim();
-    if (trimmed.length < 2) {
+    if (trimmedQuery.length < 2) {
       geoRequestRef.current += 1;
       setGeoResults([]);
       setSearchLoading(false);
+      setIsOpen(false);
       return;
     }
-    if (hasSelectedPlace && selectedPlace && trimmed === selectedPlace.label.trim()) {
+    if (hasSelectedPlace && selectedPlace && trimmedQuery === selectedPlace.label.trim()) {
       geoRequestRef.current += 1;
       setGeoResults([]);
       setSearchLoading(false);
+      setIsOpen(false);
       return;
     }
+    setIsOpen(true);
     const requestId = geoRequestRef.current + 1;
     geoRequestRef.current = requestId;
     const controller = new AbortController();
@@ -205,7 +212,7 @@ export function LocationFilterModal({
       setSearchLoading(true);
       try {
         const params = new URLSearchParams({
-          q: trimmed,
+          q: trimmedQuery,
           country: "es",
           lang: "es",
           mode: "settlement",
@@ -238,7 +245,7 @@ export function LocationFilterModal({
       controller.abort();
       window.clearTimeout(timeout);
     };
-  }, [geoQuery, hasSelectedPlace, open, selectedPlace]);
+  }, [trimmedQuery, hasSelectedPlace, open, selectedPlace]);
 
   const handleSelectGeoResult = (result: GeoSearchResult) => {
     if (DEBUG_LOC) {
@@ -252,6 +259,7 @@ export function LocationFilterModal({
       placeId: result.placeId ?? null,
     });
     setGeoQuery(result.display);
+    setIsOpen(false);
     setGeoResults([]);
     setSearchLoading(false);
   };
@@ -320,12 +328,16 @@ export function LocationFilterModal({
                 ref={inputRef}
                 value={geoQuery}
                 onChange={(event) => {
-                  setGeoQuery(event.target.value);
-                  setSelectedPlace(null);
+                  const nextValue = event.target.value;
+                  setGeoQuery(nextValue);
+                  if (selectedPlace && nextValue !== selectedPlace.label) {
+                    setSelectedPlace(null);
+                  }
+                  setIsOpen(nextValue.trim().length >= 2);
                 }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
-                    const hasSuggestions = geoResults.length > 0;
+                    const hasSuggestions = isOpen && geoResults.length > 0;
                     const queryMatches =
                       hasSelectedPlace &&
                       selectedPlace &&
@@ -337,11 +349,12 @@ export function LocationFilterModal({
                     return;
                   }
                   if (event.key === "Escape") {
-                    if (geoResults.length > 0) {
+                    if (isOpen || geoResults.length > 0) {
                       event.preventDefault();
                       geoRequestRef.current += 1;
                       setGeoResults([]);
                       setSearchLoading(false);
+                      setIsOpen(false);
                     }
                   }
                 }}
@@ -349,8 +362,8 @@ export function LocationFilterModal({
                 aria-label="Buscar ciudad"
                 className="h-10 w-full rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 text-sm text-[color:var(--text)]"
               />
-              {geoResults.length > 0 ? (
-                <div className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-lg">
+              {isOpen && geoResults.length > 0 ? (
+                <div className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] shadow-lg">
                   {geoResults.map((result) => (
                     <button
                       key={result.id}
