@@ -95,8 +95,6 @@ export const PopClipTile = memo(function PopClipTile({
   organizerItemId,
   organizerCollectionId,
   hasLocationCenter = false,
-  referenceLocation = null,
-  onRequestLocation,
   onCopyLink,
   onShare,
   onReport,
@@ -134,12 +132,8 @@ export const PopClipTile = memo(function PopClipTile({
   const creatorLocationLabel = allowLocation ? (item.creator.locationLabel || "").trim() : "";
   const showLocationHint = variant === "explore" && Boolean(creatorLocationLabel);
   
-  // Calcular distancia usando referenceLocation (exploreLocation)
   const hasDistance = Number.isFinite(item.distanceKm ?? NaN);
   const formattedDistance = hasDistance ? formatDistanceKm(item.distanceKm as number) : "";
-  
-  // SIEMPRE mostrar CTA solo si NO hay referenceLocation
-  const showActivateLocation = showLocationHint && !referenceLocation;
   const serviceTags = normalizeServiceTags(item.creator.offerTags);
   const visibleServiceTags = serviceTags.slice(0, 2);
   const hiddenServiceCount = Math.max(0, serviceTags.length - visibleServiceTags.length);
@@ -303,27 +297,10 @@ export const PopClipTile = memo(function PopClipTile({
               </a>
             </Link>
             {showLocationHint ? (
-              showActivateLocation && onRequestLocation ? (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onRequestLocation();
-                  }}
-                  className="text-left text-[10px] font-medium text-[color:var(--muted)] hover:text-[color:var(--text)]"
-                >
-                  <span>📍 {creatorLocationLabel} (aprox.) · </span>
-                  <span className="text-[color:var(--brand)] underline decoration-[color:rgba(var(--brand-rgb),0.6)] underline-offset-2">
-                    Cambiar ubicación
-                  </span>
-                </button>
-              ) : (
-                <div className="text-[10px] text-[color:var(--muted)]">
-                  <span>📍 {creatorLocationLabel} (aprox.)</span>
-                  {hasDistance ? <span> · a {formattedDistance}</span> : null}
-                </div>
-              )
+              <div className="text-[10px] text-[color:var(--muted)]">
+                <span>📍 {creatorLocationLabel} (aprox.)</span>
+                {hasDistance ? <span> · a {formattedDistance}</span> : null}
+              </div>
             ) : null}
             {showServiceRow ? (
               <div
