@@ -1,6 +1,5 @@
-import Link from "next/link";
 import { useRouter } from "next/router";
-import { useEffect, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
 import { Bookmark, Home, Inbox, Plus, User, type LucideIcon } from "lucide-react";
 import { QuickActionsSheet } from "./QuickActionsSheet";
@@ -24,50 +23,46 @@ const TABS: TabItem[] = [
 const VISIBLE_ROUTES = new Set(["/discover", "/explore", "/favorites", "/favoritos", "/login", "/c/[handle]", "/[handle]"]);
 
 function TabLink({
-  href,
   label,
   icon: Icon,
   active,
   primary,
   onClick,
 }: {
-  href: string;
   label: string;
   icon: LucideIcon;
   active: boolean;
   primary?: boolean;
-  onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
+  onClick?: () => void;
 }) {
   if (primary) {
     return (
-      <Link href={href} legacyBehavior passHref>
-        <a
-          aria-label={label}
-          aria-current={active ? "page" : undefined}
-          onClick={onClick}
-          className="relative -mt-5 inline-flex h-12 w-12 items-center justify-center rounded-full bg-[color:var(--brand-strong)] text-[color:var(--surface-0)] shadow-lg focus:outline-none focus:ring-2 focus:ring-[color:var(--ring)]"
-        >
-          <Icon className="h-5 w-5" aria-hidden="true" />
-        </a>
-      </Link>
+      <button
+        type="button"
+        aria-label={label}
+        aria-current={active ? "page" : undefined}
+        onClick={onClick}
+        className="relative -mt-5 inline-flex h-12 w-12 items-center justify-center rounded-full bg-[color:var(--brand-strong)] text-[color:var(--surface-0)] shadow-lg focus:outline-none focus:ring-2 focus:ring-[color:var(--ring)]"
+      >
+        <Icon className="h-5 w-5" aria-hidden="true" />
+      </button>
     );
   }
 
   return (
-    <Link href={href} legacyBehavior passHref>
-      <a
-        aria-label={label}
-        aria-current={active ? "page" : undefined}
-        onClick={onClick}
-        className={clsx(
-          "flex flex-col items-center gap-1 text-[10px] font-semibold",
-          active ? "text-[color:var(--text)]" : "text-[color:var(--muted)]"
-        )}
-      >
-        <Icon className="h-5 w-5" aria-hidden="true" />
-        <span>{label}</span>
-      </a>
-    </Link>
+    <button
+      type="button"
+      aria-label={label}
+      aria-current={active ? "page" : undefined}
+      onClick={onClick}
+      className={clsx(
+        "flex flex-col items-center gap-1 text-[10px] font-semibold",
+        active ? "text-[color:var(--text)]" : "text-[color:var(--muted)]"
+      )}
+    >
+      <Icon className="h-5 w-5" aria-hidden="true" />
+      <span>{label}</span>
+    </button>
   );
 }
 
@@ -144,6 +139,20 @@ export function MobileTabBar() {
     };
   }, [quickOpen, router.events]);
 
+  const scrollToTop = useCallback(() => {
+    if (typeof window === "undefined") return;
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  const navigate = useCallback(
+    (href: string) => {
+      if (!href) return;
+      if (router.asPath === href) return;
+      void router.push(href);
+    },
+    [router]
+  );
+
   if (!shouldRender) return null;
 
   const chatsHref = creatorAvailable === false ? "/login" : "/creator/manager?tab=chats";
@@ -153,17 +162,6 @@ export function MobileTabBar() {
     if (tab.key === "me") return { ...tab, href: meHref };
     return tab;
   });
-  const shouldIgnoreClick = (event: MouseEvent<HTMLAnchorElement>) =>
-    event.defaultPrevented ||
-    event.button !== 0 ||
-    event.metaKey ||
-    event.altKey ||
-    event.ctrlKey ||
-    event.shiftKey;
-  const scrollToTop = () => {
-    if (typeof window === "undefined") return;
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
 
   return (
     <>
@@ -185,36 +183,39 @@ export function MobileTabBar() {
                       : currentPath === basePath || currentPath.startsWith(`${basePath}/`);
             const handleClick =
               tab.primary
-                ? (event: MouseEvent<HTMLAnchorElement>) => {
-                    if (shouldIgnoreClick(event)) return;
-                    event.preventDefault();
+                ? () => {
                     setQuickOpen(true);
                   }
                 : tab.key === "home"
-                  ? (event: MouseEvent<HTMLAnchorElement>) => {
-                      if (shouldIgnoreClick(event)) return;
-                      event.preventDefault();
+                  ? () => {
                       if (isExplore && !hasExploreQuery) {
                         scrollToTop();
                         return;
                       }
-                      void router.push("/explore").then(scrollToTop);
+                      navigate("/explore");
+                      scrollToTop();
                     }
                   : tab.key === "saved"
-                    ? (event: MouseEvent<HTMLAnchorElement>) => {
-                        if (shouldIgnoreClick(event)) return;
-                        event.preventDefault();
+                    ? () => {
                         if (isFavorites) {
                           scrollToTop();
                           return;
                         }
-                      void router.push("/favoritos").then(scrollToTop);
+                      navigate("/favoritos");
+                      scrollToTop();
                     }
-                  : undefined;
+                    : tab.key === "chats"
+                      ? () => {
+                          navigate(chatsHref);
+                        }
+                      : tab.key === "me"
+                        ? () => {
+                            navigate(meHref);
+                          }
+                        : undefined;
             return (
               <TabLink
                 key={tab.key}
-                href={tab.href}
                 label={tab.label}
                 icon={tab.icon}
                 active={isActive}

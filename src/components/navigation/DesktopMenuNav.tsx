@@ -2,7 +2,7 @@ import * as Popover from "@radix-ui/react-popover";
 import clsx from "clsx";
 import { Bookmark, Home, Inbox, Menu, Plus, User } from "lucide-react";
 import { useRouter } from "next/router";
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 import { QuickActionsSheet } from "../mobile/QuickActionsSheet";
 
 type QuickAction = {
@@ -127,6 +127,28 @@ export function DesktopMenuNav({ className }: { className?: string }) {
     };
   }, [quickOpen]);
 
+  const navigate = useCallback(
+    (href: string) => {
+      if (!href) return;
+      if (router.asPath === href) return;
+      const [path, queryString] = href.split("?");
+      if (path === router.pathname && queryString) {
+        const params = new URLSearchParams(queryString);
+        const nextQuery: Record<string, string> = {};
+        params.forEach((value, key) => {
+          nextQuery[key] = value;
+        });
+        void router.replace({ pathname: router.pathname, query: nextQuery }, undefined, {
+          shallow: true,
+          scroll: false,
+        });
+        return;
+      }
+      void router.push(href);
+    },
+    [router]
+  );
+
   if (!shouldRender) return null;
 
   const chatsHref = creatorAvailable === false ? "/login" : "/creator/manager?tab=chats";
@@ -138,8 +160,7 @@ export function DesktopMenuNav({ className }: { className?: string }) {
 
   const handleNav = (href: string) => {
     setMenuOpen(false);
-    if (!href || router.asPath === href) return;
-    void router.push(href);
+    navigate(href);
   };
 
   const handleHome = (event: MouseEvent<HTMLButtonElement>) => {
@@ -231,9 +252,7 @@ export function DesktopMenuNav({ className }: { className?: string }) {
                   type="button"
                   onClick={() => {
                     setQuickOpen(false);
-                    if (router.asPath !== action.href) {
-                      void router.push(action.href);
-                    }
+                    navigate(action.href);
                   }}
                   className="flex flex-col items-start gap-1 rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 py-3 text-left transition hover:bg-[color:var(--surface-1)]"
                 >
