@@ -27,7 +27,7 @@ export function DesktopMenuNav({ className }: { className?: string }) {
   const query = new URLSearchParams(queryString);
   const tabParam = (query.get("tab") || "").toLowerCase();
   const isExplore = currentPath === "/explore";
-  const isFavorites = currentPath === "/favorites";
+  const isFavorites = currentPath === "/favorites" || currentPath === "/favoritos";
   const isManager = currentPath === "/creator/manager";
   const isPanelRoute = currentPath === "/creator/panel";
   const isBioLinkRoute = currentPath.startsWith("/creator/bio-link");

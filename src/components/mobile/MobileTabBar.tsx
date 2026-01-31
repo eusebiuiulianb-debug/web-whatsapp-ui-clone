@@ -21,7 +21,7 @@ const TABS: TabItem[] = [
   { key: "me", label: "Tu", href: "/creator/panel", icon: User },
 ];
 
-const VISIBLE_ROUTES = new Set(["/discover", "/explore", "/favorites", "/login", "/c/[handle]", "/[handle]"]);
+const VISIBLE_ROUTES = new Set(["/discover", "/explore", "/favorites", "/favoritos", "/login", "/c/[handle]", "/[handle]"]);
 
 function TabLink({
   href,
@@ -84,7 +84,7 @@ export function MobileTabBar() {
   const query = new URLSearchParams(queryString);
   const tabParam = (query.get("tab") || "").toLowerCase();
   const isExplore = currentPath === "/explore";
-  const isFavorites = currentPath === "/favorites";
+  const isFavorites = currentPath === "/favorites" || currentPath === "/favoritos";
   const hasExploreQuery = isExplore && queryString.length > 0;
   const isManager = currentPath === "/creator/manager";
   const isPanelRoute = currentPath === "/creator/panel";
