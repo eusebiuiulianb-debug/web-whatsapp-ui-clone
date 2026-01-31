@@ -25,10 +25,9 @@ export function DesktopMenuNav({ className }: { className?: string }) {
   const queryPart = router.asPath.split("?")[1] ?? "";
   const queryString = queryPart.split("#")[0] ?? "";
   const query = new URLSearchParams(queryString);
-  const savedParam = query.get("saved");
   const tabParam = (query.get("tab") || "").toLowerCase();
   const isExplore = currentPath === "/explore";
-  const isSavedView = isExplore && (savedParam === "1" || savedParam === "true");
+  const isFavorites = currentPath === "/favorites";
   const isManager = currentPath === "/creator/manager";
   const isPanelRoute = currentPath === "/creator/panel";
   const isBioLinkRoute = currentPath.startsWith("/creator/bio-link");
@@ -132,8 +131,8 @@ export function DesktopMenuNav({ className }: { className?: string }) {
 
   const chatsHref = creatorAvailable === false ? "/login" : "/creator/manager?tab=chats";
   const meHref = creatorAvailable === false ? "/login" : "/creator/panel";
-  const isHomeActive = (isExplore && !isSavedView) || currentPath === "/discover";
-  const isSavedActive = isSavedView;
+  const isHomeActive = isExplore || currentPath === "/discover";
+  const isSavedActive = isFavorites;
   const isChatsActive = isManager && (tabParam === "chats" || tabParam === "");
   const isMeActive = isProfileTab || isPanelRoute || isBioLinkRoute || currentPath === "/login";
 
@@ -155,7 +154,7 @@ export function DesktopMenuNav({ className }: { className?: string }) {
 
   const handleSaved = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
-    handleNav(isSavedView ? "/explore" : "/explore?saved=1");
+    handleNav("/favorites");
   };
 
   return (

@@ -15,13 +15,13 @@ type TabItem = {
 
 const TABS: TabItem[] = [
   { key: "home", label: "Inicio", href: "/explore", icon: Home },
-  { key: "saved", label: "Guardados", href: "/explore?saved=1", icon: Bookmark },
+  { key: "saved", label: "Guardados", href: "/favorites", icon: Bookmark },
   { key: "upload", label: "Subir", href: "/creator/panel", icon: Plus, primary: true },
   { key: "chats", label: "Chats", href: "/creator/manager?tab=chats", icon: Inbox },
   { key: "me", label: "Tu", href: "/creator/panel", icon: User },
 ];
 
-const VISIBLE_ROUTES = new Set(["/discover", "/explore", "/login", "/c/[handle]", "/[handle]"]);
+const VISIBLE_ROUTES = new Set(["/discover", "/explore", "/favorites", "/login", "/c/[handle]", "/[handle]"]);
 
 function TabLink({
   href,
@@ -82,10 +82,9 @@ export function MobileTabBar() {
   const queryPart = router.asPath.split("?")[1] ?? "";
   const queryString = queryPart.split("#")[0] ?? "";
   const query = new URLSearchParams(queryString);
-  const savedParam = query.get("saved");
   const tabParam = (query.get("tab") || "").toLowerCase();
   const isExplore = currentPath === "/explore";
-  const isSavedView = isExplore && (savedParam === "1" || savedParam === "true");
+  const isFavorites = currentPath === "/favorites";
   const hasExploreQuery = isExplore && queryString.length > 0;
   const isManager = currentPath === "/creator/manager";
   const isPanelRoute = currentPath === "/creator/panel";
@@ -176,9 +175,9 @@ export function MobileTabBar() {
               tab.primary
                 ? false
                 : tab.key === "saved"
-                ? isSavedView
+                ? isFavorites
                 : tab.key === "home"
-                  ? (isExplore && !isSavedView) || currentPath === "/discover"
+                  ? isExplore || currentPath === "/discover"
                   : tab.key === "chats"
                     ? isManager && (tabParam === "chats" || tabParam === "")
                     : tab.key === "me"
@@ -205,8 +204,11 @@ export function MobileTabBar() {
                     ? (event: MouseEvent<HTMLAnchorElement>) => {
                         if (shouldIgnoreClick(event)) return;
                         event.preventDefault();
-                        const target = isSavedView ? "/explore" : "/explore?saved=1";
-                        void router.push(target);
+                        if (isFavorites) {
+                          scrollToTop();
+                          return;
+                        }
+                        void router.push("/favorites").then(scrollToTop);
                       }
                     : undefined;
             return (
