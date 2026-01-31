@@ -4,6 +4,7 @@ import { Bookmark, Home, Inbox, Menu, Plus, User } from "lucide-react";
 import { useRouter } from "next/router";
 import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 import { QuickActionsSheet } from "../mobile/QuickActionsSheet";
+import { safeRouterPush } from "../../lib/navigation/safeRouterPush";
 
 type QuickAction = {
   id: string;
@@ -144,7 +145,7 @@ export function DesktopMenuNav({ className }: { className?: string }) {
         });
         return;
       }
-      void router.push(href);
+      void safeRouterPush(router, href);
     },
     [router]
   );

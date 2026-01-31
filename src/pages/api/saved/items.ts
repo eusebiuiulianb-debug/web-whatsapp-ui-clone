@@ -24,7 +24,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const fanId = readFanId(req);
   if (!fanId) {
-    return res.status(401).json({ error: "AUTH_REQUIRED" });
+    return res.status(200).json({ items: [] as SavedPreviewItem[], unauth: true });
   }
 
   const collectionId = pickQueryString(req.query.collectionId);

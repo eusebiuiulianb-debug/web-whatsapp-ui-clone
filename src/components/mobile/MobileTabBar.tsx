@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
 import { Bookmark, Home, Inbox, Plus, User, type LucideIcon } from "lucide-react";
 import { QuickActionsSheet } from "./QuickActionsSheet";
+import { safeRouterPush } from "../../lib/navigation/safeRouterPush";
 
 type TabItem = {
   key: string;
@@ -148,7 +149,7 @@ export function MobileTabBar() {
     (href: string) => {
       if (!href) return;
       if (router.asPath === href) return;
-      void router.push(href);
+      void safeRouterPush(router, href);
     },
     [router]
   );

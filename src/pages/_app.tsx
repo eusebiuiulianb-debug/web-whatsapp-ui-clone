@@ -21,7 +21,10 @@ function MyApp({ Component, pageProps }: AppProps) {
     if (process.env.NODE_ENV !== "development") return;
     const handleStart = (url: string) => console.log("[routeChangeStart]", url);
     const handleComplete = (url: string) => console.log("[routeChangeComplete]", url);
-    const handleError = (err: Error, url: string) => console.warn("[routeChangeError]", url, err);
+    const handleError = (err: Error, url: string) => {
+      console.warn("[routeChangeError]", url, err);
+      console.trace("[routeChangeError trace]", err);
+    };
     router.events.on("routeChangeStart", handleStart);
     router.events.on("routeChangeComplete", handleComplete);
     router.events.on("routeChangeError", handleError);

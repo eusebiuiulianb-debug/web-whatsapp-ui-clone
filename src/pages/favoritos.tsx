@@ -59,6 +59,7 @@ export default function FavoritosPage() {
     { revalidateOnFocus: false }
   );
   const savedPopclips = savedPopclipsData?.items;
+  const savedUnauth = Boolean(savedPopclipsData?.unauth);
   const savedPopclipMap = useMemo(
     () => buildSavedPopclipMap(savedPopclips ?? []),
     [savedPopclips]
@@ -271,7 +272,7 @@ export default function FavoritosPage() {
               ))}
             </div>
           ) : savedIds.length === 0 ? (
-            renderEmpty("Aún no has guardado nada.")
+            renderEmpty(savedUnauth ? "Inicia sesión para ver tus guardados." : "Aún no has guardado nada.")
           ) : popclipsError ? (
             <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
               No se pudieron cargar los PopClips guardados.

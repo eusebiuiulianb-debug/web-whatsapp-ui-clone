@@ -1912,7 +1912,7 @@ function FilterChip({
     <button
       type="button"
       onClick={onClick}
-      aria-pressed={active}
+      aria-pressed={active ? "true" : "false"}
       aria-label={label}
       className={clsx(
         "inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold transition",
@@ -2144,7 +2144,7 @@ function CaptionSheet({
           open ? "opacity-100" : "opacity-0"
         )}
         onClick={open ? onClose : undefined}
-        aria-hidden={!open}
+        aria-hidden={open ? "false" : "true"}
       />
       <div
         role="dialog"
