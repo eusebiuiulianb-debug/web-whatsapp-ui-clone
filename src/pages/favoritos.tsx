@@ -5,9 +5,9 @@ import useSWR from "swr";
 import { useRouter } from "next/router";
 import { HomeSectionCard } from "../components/home/HomeSectionCard";
 import { PopClipTile, type PopClipTileItem } from "../components/popclips/PopClipTile";
-import { Skeleton } from "../components/ui/Skeleton";
 import { DesktopMenuNav } from "../components/navigation/DesktopMenuNav";
 import { AuthModal } from "../components/auth/AuthModal";
+import { SavedSkeleton } from "../components/skeletons/SavedSkeleton";
 import { consumePendingAction, setPendingAction } from "../lib/auth/pendingAction";
 import {
   SAVED_POPCLIPS_KEY,
@@ -22,8 +22,6 @@ const TABS = [
   { id: "packs", label: "Packs" },
   { id: "popclips", label: "PopClips" },
 ];
-
-const FEED_SKELETON_COUNT = 6;
 
 type TabId = (typeof TABS)[number]["id"];
 type PopclipsResponse = { items: PopClipTileItem[] };
@@ -86,6 +84,7 @@ export default function FavoritosPage() {
   const popclipItems = popclipsData?.items ?? [];
   const savedLoading = !savedPopclipsData && !savedError;
   const popclipsLoading = shouldLoadPopclips && !popclipsData && !popclipsError;
+  const showSavedSkeleton = savedLoading || popclipsLoading;
 
   const showToast = useCallback((message: string) => {
     setToast(message);
@@ -284,6 +283,17 @@ export default function FavoritosPage() {
     </div>
   );
 
+  if (showSavedSkeleton) {
+    return (
+      <>
+        <Head>
+          <title>Favoritos · NOVSY</title>
+        </Head>
+        <SavedSkeleton />
+      </>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[color:var(--surface-0)] text-[color:var(--text)]">
       <Head>
@@ -338,25 +348,6 @@ export default function FavoritosPage() {
                 : "Aún no tienes packs guardados.",
               savedUnauth ? { showLogin: true } : undefined
             )
-          ) : savedLoading || popclipsLoading ? (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
-              {Array.from({ length: FEED_SKELETON_COUNT }).map((_, idx) => (
-                <div
-                  key={`favorite-skeleton-${idx}`}
-                  className="flex flex-col gap-2 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3"
-                >
-                  <Skeleton className="aspect-[10/13] w-full rounded-xl sm:aspect-[3/4] md:aspect-[4/5]" />
-                  <div className="flex flex-wrap gap-2">
-                    <Skeleton className="h-5 w-16 rounded-full" />
-                    <Skeleton className="h-5 w-20 rounded-full" />
-                  </div>
-                  <div className="flex gap-2">
-                    <Skeleton className="h-9 flex-1 rounded-full" />
-                    <Skeleton className="h-9 flex-1 rounded-full" />
-                  </div>
-                </div>
-              ))}
-            </div>
           ) : savedIds.length === 0 ? (
             renderEmpty(
               savedUnauth ? "Inicia sesión para ver tus guardados." : "Aún no has guardado nada.",

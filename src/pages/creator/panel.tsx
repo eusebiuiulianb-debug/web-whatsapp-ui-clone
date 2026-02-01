@@ -6,6 +6,7 @@ import CreatorHeader from "../../components/CreatorHeader";
 import { AnalyticsPanel } from "../../components/creator/AnalyticsPanel";
 import { CatalogPanel } from "../../components/creator/CatalogPanel";
 import { PopClipsPanel } from "../../components/creator/PopClipsPanel";
+import { CreatorPanelSkeleton } from "../../components/skeletons/CreatorPanelSkeleton";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 
 const PANEL_TABS = [
@@ -30,7 +31,7 @@ function normalizeAction(value: string | string[] | undefined): PanelAction {
 }
 
 export default function CreatorPanelPage() {
-  const { config } = useCreatorConfig();
+  const { config, isLoaded } = useCreatorConfig();
   const creatorInitial = config.creatorName?.trim().charAt(0) || "C";
   const router = useRouter();
   const tabParam = normalizeTab(router.query.tab);
@@ -69,6 +70,17 @@ export default function CreatorPanelPage() {
     void router.replace({ pathname: "/creator/panel", query: nextQuery }, undefined, { shallow: true });
     setActionNotice(null);
   };
+
+  if (!isLoaded) {
+    return (
+      <>
+        <Head>
+          <title>Panel – NOVSY</title>
+        </Head>
+        <CreatorPanelSkeleton />
+      </>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[color:var(--surface-0)] text-[color:var(--text)]">

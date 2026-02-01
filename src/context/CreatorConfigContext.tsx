@@ -8,12 +8,14 @@ import {
 
 interface CreatorConfigContextType {
   config: CreatorConfig;
+  isLoaded: boolean;
   setConfig: (config: CreatorConfig) => void;
   resetConfig: () => void;
 }
 
 const CreatorConfigContext = createContext<CreatorConfigContextType>({
   config: DEFAULT_CREATOR_CONFIG,
+  isLoaded: false,
   setConfig: () => {},
   resetConfig: () => {},
 });
@@ -70,7 +72,7 @@ export function CreatorConfigProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <CreatorConfigContext.Provider value={{ config, setConfig, resetConfig }}>
+    <CreatorConfigContext.Provider value={{ config, isLoaded, setConfig, resetConfig }}>
       {children}
     </CreatorConfigContext.Provider>
   );
