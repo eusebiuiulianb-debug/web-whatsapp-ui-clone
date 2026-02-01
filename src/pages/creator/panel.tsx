@@ -6,7 +6,7 @@ import CreatorHeader from "../../components/CreatorHeader";
 import { AnalyticsPanel } from "../../components/creator/AnalyticsPanel";
 import { CatalogPanel } from "../../components/creator/CatalogPanel";
 import { PopClipsPanel } from "../../components/creator/PopClipsPanel";
-import { CreatorPanelSkeleton } from "../../components/skeletons/CreatorPanelSkeleton";
+import { MeSkeleton } from "../../components/skeletons/MeSkeleton";
 import { useCreatorConfig } from "../../context/CreatorConfigContext";
 
 const PANEL_TABS = [
@@ -77,7 +77,7 @@ export default function CreatorPanelPage() {
         <Head>
           <title>Panel – NOVSY</title>
         </Head>
-        <CreatorPanelSkeleton />
+        <MeSkeleton />
       </>
     );
   }

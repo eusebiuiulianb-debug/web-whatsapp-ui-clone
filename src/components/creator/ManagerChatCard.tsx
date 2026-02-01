@@ -70,6 +70,7 @@ import {
   openFanChatAndPrefill,
 } from "../../lib/navigation/openCreatorChat";
 import { writeCortexFlow, type CortexFlowState } from "../../lib/cortexFlow";
+import { validateVideoUrl, type VideoUrlValidationReason } from "../../lib/validation/videoUrl";
 
 type ManagerChatMessage = {
   id: string;
@@ -123,6 +124,15 @@ const formatDayPartLabel = (dayPart?: string | null) => {
   if (dayPart === "ANY") return "Cualquiera";
   return null;
 };
+
+const VIDEO_URL_MESSAGES: Record<VideoUrlValidationReason, string> = {
+  required: "El video es obligatorio.",
+  youtube: "No se admiten links de YouTube. Usa un enlace directo a un archivo .mp4 o .webm.",
+  extension: "Solo se admiten enlaces directos .mp4 o .webm (ej: https://.../video.mp4).",
+};
+
+const getVideoUrlMessage = (reason: VideoUrlValidationReason) =>
+  VIDEO_URL_MESSAGES[reason] ?? "Video URL inválido.";
 
 const formatOfferLabel = (offer?: ManagerChatOffer | null) => {
   if (!offer) return null;
@@ -606,6 +616,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
   const [popClipSaving, setPopClipSaving] = useState(false);
   const [popClipDeleting, setPopClipDeleting] = useState(false);
   const [popClipEditorError, setPopClipEditorError] = useState<string | null>(null);
+  const [popClipVideoTouched, setPopClipVideoTouched] = useState(false);
   const [isCatalogEditorOpen, setIsCatalogEditorOpen] = useState(false);
   const [catalogEditorMode, setCatalogEditorMode] = useState<"create" | "edit">("create");
   const [catalogDraft, setCatalogDraft] = useState<CatalogEditorDraft | null>(null);
@@ -650,6 +661,16 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     () => new Map(popClips.map((clip) => [clip.catalogItemId, clip] as const)),
     [popClips]
   );
+  const popClipVideoUrl = popClipDraft?.videoUrl ?? "";
+  const popClipVideoValidation = useMemo(
+    () => validateVideoUrl(popClipVideoUrl, { required: true }),
+    [popClipVideoUrl]
+  );
+  const popClipVideoError =
+    popClipVideoTouched && !popClipVideoValidation.ok
+      ? getVideoUrlMessage(popClipVideoValidation.reason)
+      : null;
+  const isPopClipVideoInvalid = !popClipVideoValidation.ok;
   const scrollerPaddingRight = isNarrowMobile ? 12 : Math.max(actionsWidth + 12, 64);
   const resizeComposer = useCallback((el: HTMLTextAreaElement | null) => {
     if (!el) return;
@@ -697,6 +718,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     setPopClipDraft(null);
     setPopClipDraftItem(null);
     setPopClipEditorError(null);
+    setPopClipVideoTouched(false);
   }, []);
 
   useEffect(() => {
@@ -2060,6 +2082,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
     if (item.type !== "PACK") return;
     const existing = popClipsByCatalogItemId.get(item.id);
     setPopClipEditorError(null);
+    setPopClipVideoTouched(false);
     setPopClipDraftItem(item);
     setPopClipDraft({
       id: existing?.id,
@@ -2292,11 +2315,13 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
       setPopClipEditorError("No hay creatorId para guardar.");
       return;
     }
-    const videoUrl = popClipDraft.videoUrl.trim();
-    if (!videoUrl) {
-      setPopClipEditorError("El video es obligatorio.");
+    const videoValidation = validateVideoUrl(popClipDraft.videoUrl, { required: true });
+    if (!videoValidation.ok) {
+      setPopClipVideoTouched(true);
+      setPopClipEditorError(null);
       return;
     }
+    const videoUrl = popClipDraft.videoUrl.trim();
     const durationRaw = popClipDraft.durationSec.trim();
     const durationValue = durationRaw.length > 0 ? Number(durationRaw) : null;
     if (durationValue !== null && (!Number.isFinite(durationValue) || durationValue < 0)) {
@@ -3865,13 +3890,26 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       <input
                         ref={popClipEditorVideoRef}
                         value={popClipDraft.videoUrl}
-                        onChange={(event) =>
-                          setPopClipDraft((prev) => (prev ? { ...prev, videoUrl: event.target.value } : prev))
-                        }
-                        className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
+                        onChange={(event) => {
+                          setPopClipVideoTouched(true);
+                          setPopClipDraft((prev) => (prev ? { ...prev, videoUrl: event.target.value } : prev));
+                          if (popClipEditorError) setPopClipEditorError(null);
+                        }}
+                        onBlur={() => setPopClipVideoTouched(true)}
+                        className={clsx(
+                          "mt-1 w-full rounded-lg border bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]",
+                          popClipVideoError
+                            ? "border-[color:var(--danger)] focus-visible:ring-[color:var(--danger)]"
+                            : "border-[color:var(--surface-border)]"
+                        )}
                         placeholder="https://..."
                         inputMode="url"
                       />
+                      {popClipVideoError && (
+                        <div className="mt-1 text-[11px] text-[color:var(--danger)]">
+                          {popClipVideoError}
+                        </div>
+                      )}
                     </label>
                     <label className="block text-[11px] text-[color:var(--muted)]">
                       Poster URL (opcional)
@@ -3958,7 +3996,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       <button
                         type="button"
                         onClick={handlePopClipSave}
-                        disabled={popClipSaving || popClipDeleting}
+                        disabled={popClipSaving || popClipDeleting || isPopClipVideoInvalid}
                         className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-[color:var(--brand-strong)] text-[color:var(--text)] hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)] disabled:opacity-60"
                       >
                         {popClipSaving ? "Guardando..." : "Guardar"}
@@ -4020,13 +4058,26 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       <input
                         ref={popClipEditorVideoRef}
                         value={popClipDraft.videoUrl}
-                        onChange={(event) =>
-                          setPopClipDraft((prev) => (prev ? { ...prev, videoUrl: event.target.value } : prev))
-                        }
-                        className="mt-1 w-full rounded-lg border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]"
+                        onChange={(event) => {
+                          setPopClipVideoTouched(true);
+                          setPopClipDraft((prev) => (prev ? { ...prev, videoUrl: event.target.value } : prev));
+                          if (popClipEditorError) setPopClipEditorError(null);
+                        }}
+                        onBlur={() => setPopClipVideoTouched(true)}
+                        className={clsx(
+                          "mt-1 w-full rounded-lg border bg-[color:var(--surface-2)] px-3 py-2 text-sm text-[color:var(--text)]",
+                          popClipVideoError
+                            ? "border-[color:var(--danger)] focus-visible:ring-[color:var(--danger)]"
+                            : "border-[color:var(--surface-border)]"
+                        )}
                         placeholder="https://..."
                         inputMode="url"
                       />
+                      {popClipVideoError && (
+                        <div className="mt-1 text-[11px] text-[color:var(--danger)]">
+                          {popClipVideoError}
+                        </div>
+                      )}
                     </label>
                     <label className="block text-[11px] text-[color:var(--muted)]">
                       Poster URL (opcional)
@@ -4113,7 +4164,7 @@ export const ManagerChatCard = forwardRef<ManagerChatCardHandle, Props>(function
                       <button
                         type="button"
                         onClick={handlePopClipSave}
-                        disabled={popClipSaving || popClipDeleting}
+                        disabled={popClipSaving || popClipDeleting || isPopClipVideoInvalid}
                         className="h-9 px-4 rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 bg-[color:var(--brand-strong)] text-[color:var(--text)] hover:bg-[color:var(--brand)] focus-visible:ring-[color:var(--ring)] disabled:opacity-60"
                       >
                         {popClipSaving ? "Guardando..." : "Guardar"}

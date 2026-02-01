@@ -147,6 +147,7 @@ import { Badge, type BadgeTone } from "../ui/Badge";
 import { ConversationActionsMenu } from "../conversations/ConversationActionsMenu";
 import { ContextMenu } from "../ui/ContextMenu";
 import { badgeToneForLabel } from "../../lib/badgeTone";
+import { ConversationSkeleton } from "../skeletons/ConversationSkeleton";
 import {
   COMPOSER_DRAFT_EVENT,
   appendDraftText,
@@ -1388,6 +1389,8 @@ export default function ConversationDetails({ onBackToBoard }: ConversationDetai
   const lastSentMessageRef = useRef<ApiMessage | null>(null);
   const lastContentMessageIdRef = useRef<string | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const messagesCacheRef = useRef<Map<string, ConversationMessage[]>>(new Map());
+  const messagesCacheReadyRef = useRef<Set<string>>(new Set());
   const chatOverlayRef = useRef<HTMLDivElement | null>(null);
 
   const showPurchaseNotice = useCallback((payload: PurchaseNoticeState) => {
@@ -3509,6 +3512,38 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
 
   const firstName = (contactName || "").split(" ")[0] || contactName || "";
   const messagesLength = messages?.length ?? 0;
+  const resolvedMessageFanId = useMemo(() => {
+    if (!messagesLength) return null;
+    for (const msg of messages) {
+      const fanId = typeof msg?.fanId === "string" ? msg.fanId.trim() : "";
+      if (fanId) return fanId;
+    }
+    return null;
+  }, [messages, messagesLength]);
+  const hasCachedMessagesForFan = Boolean(activeFanId && messagesCacheReadyRef.current.has(activeFanId));
+  const hasMessagesForActiveFan = Boolean(
+    activeFanId &&
+      (messagesLength > 0
+        ? !resolvedMessageFanId || resolvedMessageFanId === activeFanId
+        : hasCachedMessagesForFan)
+  );
+  const showConversationSkeleton = Boolean(
+    activeFanId &&
+      !conversation.isManager &&
+      !messagesError &&
+      (isLoadingMessages || !hasMessagesForActiveFan)
+  );
+
+  useEffect(() => {
+    if (!id || conversation.isManager) return;
+    if (!messagesCacheReadyRef.current.has(id)) return;
+    if (messagesLength === 0) {
+      messagesCacheRef.current.set(id, []);
+      return;
+    }
+    if (resolvedMessageFanId && resolvedMessageFanId !== id) return;
+    messagesCacheRef.current.set(id, messages);
+  }, [conversation.isManager, id, messages, messagesLength, resolvedMessageFanId]);
 
   useEffect(() => {
     setProfileText(conversation.profileText ?? "");
@@ -5354,7 +5389,12 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
           : [];
         const visible = source.filter((msg) => isVisibleToFan(msg));
         const mapped = mapApiMessagesToState(visible);
-        setMessage((prev) => reconcileMessages(prev || [], mapped, fanId));
+        setMessage((prev) => {
+          const nextMessages = mapped.length > 0 ? reconcileMessages(prev || [], mapped, fanId) : [];
+          messagesCacheRef.current.set(fanId, nextMessages);
+          messagesCacheReadyRef.current.add(fanId);
+          return nextMessages;
+        });
         if (shouldMarkRead) {
           publishChatEvent({ type: "thread_read", threadId: fanId });
         }
@@ -5450,10 +5490,18 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     []
   );
 
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (!id) return;
-    setMessage([]);
-    fetchMessages(id, true);
+    const hasCached = messagesCacheRef.current.has(id);
+    const cached = messagesCacheRef.current.get(id) ?? [];
+    if (hasCached) {
+      setIsLoadingMessages(false);
+      setMessage(cached);
+      fetchMessages(id, false);
+    } else {
+      setMessage([]);
+      fetchMessages(id, true);
+    }
     return () => {
       if (messagesAbortRef.current) {
         messagesAbortRef.current.abort();
@@ -13796,6 +13844,10 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
     ? Number.parseInt(ppvPriceCents.trim(), 10)
     : Number.NaN;
   const ppvPriceLabel = Number.isFinite(parsedPpvPrice) ? formatCurrency(parsedPpvPrice / 100) : "—";
+
+  if (showConversationSkeleton) {
+    return <ConversationSkeleton showBack={Boolean(onBackToBoard)} />;
+  }
 
   return (
     <div className="relative flex flex-col w-full h-[100dvh] max-h-[100dvh]">

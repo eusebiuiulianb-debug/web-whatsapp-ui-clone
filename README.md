@@ -28,7 +28,7 @@ Cambios recientes (6 archivos):
 - `src/pages/creator/edit.tsx`
 
 Siguiente prioridad:
-1. Validación dura en editor: Video URL solo `.mp4`/`.webm` (bloquear YouTube y mostrar mensaje).
+1. ✅ Validación dura en editor: Video URL solo `.mp4`/`.webm` (sin YouTube).
 2. Mejorar landing pública del pack (hero/cover placeholder, CTA Pedir más claro, volver al perfil).
 3. Pulir UX del feed: icono audio, overlay tap-to-play cuando falle autoplay, skeletons bonitos.
 

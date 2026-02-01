@@ -2,10 +2,19 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../lib/apiError";
 import { serializePopClip } from "../../../lib/popclips";
+import { validateVideoUrl, type VideoUrlValidationReason } from "../../../lib/validation/videoUrl";
 
-const ALLOWED_VIDEO_EXTENSIONS = [".mp4", ".webm"];
 const MAX_ACTIVE_POPCLIPS = 24;
 const MAX_STORY_POPCLIPS = 8;
+const VIDEO_URL_MESSAGES: Record<VideoUrlValidationReason, string> = {
+  required: "El video es obligatorio.",
+  youtube: "No se admiten links de YouTube. Usa un enlace directo a un archivo .mp4 o .webm.",
+  extension: "Solo se admiten enlaces directos .mp4 o .webm (ej: https://.../video.mp4).",
+};
+
+function getVideoUrlMessage(reason: VideoUrlValidationReason) {
+  return VIDEO_URL_MESSAGES[reason] ?? "Video URL inválido.";
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "PATCH") {
@@ -72,11 +81,20 @@ async function handlePatch(req: NextApiRequest, res: NextApiResponse) {
     }
 
     if ("videoUrl" in body) {
-      if (typeof body.videoUrl !== "string" || !body.videoUrl.trim()) {
-        return sendBadRequest(res, "videoUrl is required");
+      if (typeof body.videoUrl !== "string") {
+        return res.status(400).json({
+          ok: false,
+          error: "INVALID_VIDEO_URL",
+          message: getVideoUrlMessage("required"),
+        });
       }
-      if (!isDirectVideoUrl(body.videoUrl)) {
-        return sendBadRequest(res, "videoUrl must be a direct .mp4 or .webm link");
+      const validation = validateVideoUrl(body.videoUrl, { required: true });
+      if (!validation.ok) {
+        return res.status(400).json({
+          ok: false,
+          error: "INVALID_VIDEO_URL",
+          message: getVideoUrlMessage(validation.reason),
+        });
       }
       data.videoUrl = body.videoUrl.trim();
     }
@@ -210,14 +228,6 @@ async function handlePatch(req: NextApiRequest, res: NextApiResponse) {
     console.error("Error updating popclip", err);
     return sendServerError(res);
   }
-}
-
-function isDirectVideoUrl(url: string) {
-  const trimmed = url.trim().toLowerCase();
-  if (!trimmed) return false;
-  if (trimmed.includes("youtube.com") || trimmed.includes("youtu.be")) return false;
-  const clean = trimmed.split("?")[0]?.split("#")[0] ?? trimmed;
-  return ALLOWED_VIDEO_EXTENSIONS.some((ext) => clean.endsWith(ext));
 }
 
 async function handleDelete(req: NextApiRequest, res: NextApiResponse) {

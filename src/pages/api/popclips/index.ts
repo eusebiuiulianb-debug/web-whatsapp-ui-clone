@@ -2,9 +2,9 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "../../../lib/prisma.server";
 import { sendBadRequest, sendServerError } from "../../../lib/apiError";
 import { serializePopClip, type PopClipInput } from "../../../lib/popclips";
+import { validateVideoUrl, type VideoUrlValidationReason } from "../../../lib/validation/videoUrl";
 
 const ALLOWED_PACK_TYPES = new Set(["PACK"]);
-const ALLOWED_VIDEO_EXTENSIONS = [".mp4", ".webm"];
 const MIN_DURATION_SEC = 6;
 const MAX_DURATION_SEC = 60;
 const MAX_SIZE_BYTES = 50 * 1024 * 1024;
@@ -13,6 +13,15 @@ const MAX_RESOLUTION_SHORT = 720;
 const DAILY_POPCLIP_LIMIT = 3;
 const MAX_ACTIVE_POPCLIPS = 24;
 const MAX_STORY_POPCLIPS = 8;
+const VIDEO_URL_MESSAGES: Record<VideoUrlValidationReason, string> = {
+  required: "El video es obligatorio.",
+  youtube: "No se admiten links de YouTube. Usa un enlace directo a un archivo .mp4 o .webm.",
+  extension: "Solo se admiten enlaces directos .mp4 o .webm (ej: https://.../video.mp4).",
+};
+
+function getVideoUrlMessage(reason: VideoUrlValidationReason) {
+  return VIDEO_URL_MESSAGES[reason] ?? "Video URL inválido.";
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") {
@@ -183,10 +192,19 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     }
 
     if (!resolvedVideoUrl) {
-      return sendBadRequest(res, "videoUrl is required");
+      return res.status(400).json({
+        ok: false,
+        error: "INVALID_VIDEO_URL",
+        message: getVideoUrlMessage("required"),
+      });
     }
-    if (!isDirectVideoUrl(resolvedVideoUrl)) {
-      return sendBadRequest(res, "videoUrl must be a direct .mp4 or .webm link");
+    const validation = validateVideoUrl(resolvedVideoUrl, { required: true });
+    if (!validation.ok) {
+      return res.status(400).json({
+        ok: false,
+        error: "INVALID_VIDEO_URL",
+        message: getVideoUrlMessage(validation.reason),
+      });
     }
 
     const now = new Date();
@@ -296,12 +314,4 @@ function resolveContentMediaUrl(contentItem: { mediaPath: string | null; externa
   const direct = (contentItem.externalUrl || "").trim();
   if (direct) return direct;
   return (contentItem.mediaPath || "").trim();
-}
-
-function isDirectVideoUrl(url: string) {
-  const trimmed = url.trim().toLowerCase();
-  if (!trimmed) return false;
-  if (trimmed.includes("youtube.com") || trimmed.includes("youtu.be")) return false;
-  const clean = trimmed.split("?")[0]?.split("#")[0] ?? trimmed;
-  return ALLOWED_VIDEO_EXTENSIONS.some((ext) => clean.endsWith(ext));
 }
