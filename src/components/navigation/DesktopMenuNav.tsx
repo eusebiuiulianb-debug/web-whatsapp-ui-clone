@@ -5,6 +5,7 @@ import { useRouter } from "next/router";
 import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 import { QuickActionsSheet } from "../mobile/QuickActionsSheet";
 import { safeRouterPush } from "../../lib/navigation/safeRouterPush";
+import { hardNavigate } from "../../lib/navigation/hardNavigate";
 
 type QuickAction = {
   id: string;
@@ -28,7 +29,7 @@ export function DesktopMenuNav({ className }: { className?: string }) {
   const query = new URLSearchParams(queryString);
   const tabParam = (query.get("tab") || "").toLowerCase();
   const isExplore = currentPath === "/explore";
-  const isFavorites = currentPath === "/favorites" || currentPath === "/favoritos";
+  const isFavorites = currentPath === "/favoritos";
   const isManager = currentPath === "/creator/manager";
   const isPanelRoute = currentPath === "/creator/panel";
   const isBioLinkRoute = currentPath.startsWith("/creator/bio-link");
@@ -174,7 +175,18 @@ export function DesktopMenuNav({ className }: { className?: string }) {
   };
 
   const handleSaved = () => {
-    handleNav("/favoritos");
+    setMenuOpen(false);
+    if (typeof window !== "undefined") {
+      window.location.assign("/favoritos");
+    }
+  };
+  const handleChats = () => {
+    setMenuOpen(false);
+    hardNavigate(chatsHref);
+  };
+  const handleMe = () => {
+    setMenuOpen(false);
+    hardNavigate(meHref);
   };
 
   return (
@@ -212,8 +224,8 @@ export function DesktopMenuNav({ className }: { className?: string }) {
                   setQuickOpen(true);
                 }}
               />
-              <MenuItem icon={Inbox} label="Chats" active={isChatsActive} onClick={() => handleNav(chatsHref)} />
-              <MenuItem icon={User} label="Tú" active={isMeActive} onClick={() => handleNav(meHref)} />
+              <MenuItem icon={Inbox} label="Chats" active={isChatsActive} onClick={handleChats} />
+              <MenuItem icon={User} label="Tú" active={isMeActive} onClick={handleMe} />
             </div>
           </Popover.Content>
         </Popover.Portal>

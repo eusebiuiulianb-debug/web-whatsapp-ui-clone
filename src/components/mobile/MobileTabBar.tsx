@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
 import { Bookmark, Home, Inbox, Plus, User, type LucideIcon } from "lucide-react";
 import { QuickActionsSheet } from "./QuickActionsSheet";
-import { safeRouterPush } from "../../lib/navigation/safeRouterPush";
+import { hardNavigate } from "../../lib/navigation/hardNavigate";
 
 type TabItem = {
   key: string;
@@ -21,7 +21,7 @@ const TABS: TabItem[] = [
   { key: "me", label: "Tu", href: "/creator/panel", icon: User },
 ];
 
-const VISIBLE_ROUTES = new Set(["/discover", "/explore", "/favorites", "/favoritos", "/login", "/c/[handle]", "/[handle]"]);
+const VISIBLE_ROUTES = new Set(["/discover", "/explore", "/favoritos", "/login", "/c/[handle]", "/[handle]"]);
 
 function TabLink({
   label,
@@ -80,7 +80,7 @@ export function MobileTabBar() {
   const query = new URLSearchParams(queryString);
   const tabParam = (query.get("tab") || "").toLowerCase();
   const isExplore = currentPath === "/explore";
-  const isFavorites = currentPath === "/favorites" || currentPath === "/favoritos";
+  const isFavorites = currentPath === "/favoritos";
   const hasExploreQuery = isExplore && queryString.length > 0;
   const isManager = currentPath === "/creator/manager";
   const isPanelRoute = currentPath === "/creator/panel";
@@ -149,7 +149,7 @@ export function MobileTabBar() {
     (href: string) => {
       if (!href) return;
       if (router.asPath === href) return;
-      void safeRouterPush(router, href);
+      void router.push(href);
     },
     [router]
   );
@@ -202,16 +202,17 @@ export function MobileTabBar() {
                           scrollToTop();
                           return;
                         }
-                      navigate("/favoritos");
-                      scrollToTop();
-                    }
+                        if (typeof window !== "undefined") {
+                          window.location.assign("/favoritos");
+                        }
+                      }
                     : tab.key === "chats"
                       ? () => {
-                          navigate(chatsHref);
+                          hardNavigate(chatsHref);
                         }
                       : tab.key === "me"
                         ? () => {
-                            navigate(meHref);
+                            hardNavigate(meHref);
                           }
                         : undefined;
             return (

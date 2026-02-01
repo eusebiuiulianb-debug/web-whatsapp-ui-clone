@@ -7,6 +7,8 @@ import { HomeSectionCard } from "../components/home/HomeSectionCard";
 import { PopClipTile, type PopClipTileItem } from "../components/popclips/PopClipTile";
 import { Skeleton } from "../components/ui/Skeleton";
 import { DesktopMenuNav } from "../components/navigation/DesktopMenuNav";
+import { AuthModal } from "../components/auth/AuthModal";
+import { consumePendingAction, setPendingAction } from "../lib/auth/pendingAction";
 import {
   SAVED_POPCLIPS_KEY,
   buildSavedPopclipMap,
@@ -43,7 +45,9 @@ export default function FavoritosPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabId>("popclips");
   const [toast, setToast] = useState<string | null>(null);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSaveRef = useRef<string | null>(null);
   const resolveTab = useCallback((value: unknown): TabId => {
     const raw = Array.isArray(value) ? value[0] : value;
     if (typeof raw !== "string") return "popclips";
@@ -91,11 +95,81 @@ export default function FavoritosPage() {
     toastTimerRef.current = setTimeout(() => setToast(null), 2400);
   }, []);
 
+  const openAuthModal = useCallback((popclipId?: string) => {
+    if (popclipId) {
+      setPendingAction({ type: "SAVE_POPCLIP", popclipId });
+    }
+    setAuthModalOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!savedPopclipsData || savedPopclipsData.unauth) return;
+    if (pendingSaveRef.current) return;
+    const pending = consumePendingAction();
+    if (!pending || pending.type !== "SAVE_POPCLIP") return;
+    const popclipId = pending.popclipId;
+    pendingSaveRef.current = popclipId;
+
+    if (savedPopclipMap[popclipId]) {
+      showToast("Guardado");
+      pendingSaveRef.current = null;
+      return;
+    }
+
+    const executePendingSave = async () => {
+      try {
+        const res = await fetch("/api/saved/toggle", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "POPCLIP", entityId: popclipId }),
+        });
+        const payload = (await res.json().catch(() => null)) as
+          | { saved?: boolean; savedItemId?: string; collectionId?: string | null }
+          | null;
+        if (!res.ok || !payload || typeof payload.saved !== "boolean") {
+          throw new Error("SAVE_FAILED");
+        }
+        if (payload.saved && payload.savedItemId) {
+          mutateSavedPopclips(
+            (prev) => {
+              const items = prev?.items ?? [];
+              return {
+                items: upsertSavedPopclip(items, {
+                  id: payload.savedItemId as string,
+                  entityId: popclipId,
+                  collectionId: payload.collectionId ?? null,
+                }),
+              };
+            },
+            false
+          );
+        } else {
+          await mutateSavedPopclips();
+        }
+        if (payload.saved) {
+          showToast("Guardado");
+        } else {
+          showToast("No se pudo guardar.");
+        }
+      } catch (_err) {
+        showToast("No se pudo actualizar guardados.");
+      } finally {
+        pendingSaveRef.current = null;
+      }
+    };
+
+    void executePendingSave();
+  }, [mutateSavedPopclips, savedPopclipMap, savedPopclipsData, showToast]);
+
   const handleToggleSave = useCallback(
     async (item: PopClipTileItem) => {
       const current = savedPopclipMap[item.id];
       const wasSaved = Boolean(current);
       const nextSaved = !wasSaved;
+      if (nextSaved && savedUnauth) {
+        openAuthModal(item.id);
+        return;
+      }
       const tempId = `temp-popclip-${item.id}`;
       mutateSavedPopclips(
         (prev) => {
@@ -164,13 +238,13 @@ export default function FavoritosPage() {
           false
         );
         if (err instanceof Error && err.message === "AUTH_REQUIRED") {
-          showToast("Inicia sesion para guardar.");
+          openAuthModal(item.id);
         } else {
           showToast("No se pudo actualizar guardados.");
         }
       }
     },
-    [mutateSavedPopclips, savedPopclipMap, showToast]
+    [mutateSavedPopclips, openAuthModal, savedPopclipMap, savedUnauth, showToast]
   );
 
   const openPopclip = useCallback(
@@ -184,18 +258,29 @@ export default function FavoritosPage() {
 
   const returnToPath = router.asPath.split("#")[0] || "/favoritos";
 
-  const renderEmpty = (message: string) => (
+  const renderEmpty = (message: string, options?: { showLogin?: boolean }) => (
     <div className="space-y-3">
       <div className="text-sm font-semibold text-[color:var(--text)]">{message}</div>
       <p className="text-sm text-[color:var(--muted)]">
         Guarda tus favoritos para encontrarlos mas rapido cuando quieras volver.
       </p>
-      <Link
-        href="/explore"
-        className="inline-flex w-fit items-center justify-center rounded-full bg-[color:var(--brand-strong)] px-4 py-2 text-sm font-semibold text-[color:var(--surface-0)] hover:bg-[color:var(--brand)]"
-      >
-        Volver a explorar
-      </Link>
+      <div className="flex flex-wrap gap-2">
+        {options?.showLogin ? (
+          <button
+            type="button"
+            onClick={() => openAuthModal()}
+            className="inline-flex w-fit items-center justify-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-4 py-2 text-sm font-semibold text-[color:var(--text)] hover:bg-[color:var(--surface-2)]"
+          >
+            Iniciar sesión
+          </button>
+        ) : null}
+        <Link
+          href="/explore"
+          className="inline-flex w-fit items-center justify-center rounded-full bg-[color:var(--brand-strong)] px-4 py-2 text-sm font-semibold text-[color:var(--surface-0)] hover:bg-[color:var(--brand)]"
+        >
+          Volver a explorar
+        </Link>
+      </div>
     </div>
   );
 
@@ -250,7 +335,8 @@ export default function FavoritosPage() {
             renderEmpty(
               activeTab === "creators"
                 ? "Aún no tienes creadores guardados."
-                : "Aún no tienes packs guardados."
+                : "Aún no tienes packs guardados.",
+              savedUnauth ? { showLogin: true } : undefined
             )
           ) : savedLoading || popclipsLoading ? (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
@@ -272,7 +358,10 @@ export default function FavoritosPage() {
               ))}
             </div>
           ) : savedIds.length === 0 ? (
-            renderEmpty(savedUnauth ? "Inicia sesión para ver tus guardados." : "Aún no has guardado nada.")
+            renderEmpty(
+              savedUnauth ? "Inicia sesión para ver tus guardados." : "Aún no has guardado nada.",
+              savedUnauth ? { showLogin: true } : undefined
+            )
           ) : popclipsError ? (
             <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
               No se pudieron cargar los PopClips guardados.
@@ -302,6 +391,8 @@ export default function FavoritosPage() {
           </div>
         </div>
       ) : null}
+
+      <AuthModal open={authModalOpen} onOpenChange={setAuthModalOpen} returnTo={returnToPath} />
     </div>
   );
 }

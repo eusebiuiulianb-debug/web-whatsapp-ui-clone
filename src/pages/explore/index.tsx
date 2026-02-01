@@ -28,7 +28,9 @@ import { PillButton } from "../../components/ui/PillButton";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { VerifiedInlineBadge } from "../../components/ui/VerifiedInlineBadge";
 import { useRouter } from "next/router";
+import { AuthModal } from "../../components/auth/AuthModal";
 import { subscribeCreatorStatusUpdates } from "../../lib/creatorStatusEvents";
+import { consumePendingAction, setPendingAction } from "../../lib/auth/pendingAction";
 import {
   SAVED_POPCLIPS_KEY,
   buildSavedPopclipMap,
@@ -320,7 +322,9 @@ function ExploreContent() {
   const [viewerItems, setViewerItems] = useState<PopClipTileItem[]>([]);
   const [viewerIndex, setViewerIndex] = useState(-1);
   const [toast, setToast] = useState<{ message: string; actionLabel?: string; onAction?: () => void } | null>(null);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSaveRef = useRef<string | null>(null);
   const heroSearchWrapperRef = useRef<HTMLDivElement | null>(null);
   const heroSearchInputRef = useRef<HTMLInputElement | null>(null);
   const popclipsRef = useRef<HTMLDivElement | null>(null);
@@ -345,6 +349,7 @@ function ExploreContent() {
     () => buildSavedPopclipMap(savedPopclips ?? []),
     [savedPopclips]
   );
+  const savedUnauth = Boolean(savedPopclipsData?.unauth);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -671,11 +676,79 @@ function ExploreContent() {
     []
   );
 
+  const openAuthModal = useCallback((popclipId: string) => {
+    setPendingAction({ type: "SAVE_POPCLIP", popclipId });
+    setAuthModalOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!savedPopclipsData || savedPopclipsData.unauth) return;
+    if (pendingSaveRef.current) return;
+    const pending = consumePendingAction();
+    if (!pending || pending.type !== "SAVE_POPCLIP") return;
+    const popclipId = pending.popclipId;
+    pendingSaveRef.current = popclipId;
+
+    if (savedPopclipMap[popclipId]) {
+      showToast("Guardado");
+      pendingSaveRef.current = null;
+      return;
+    }
+
+    const executePendingSave = async () => {
+      try {
+        const res = await fetch("/api/saved/toggle", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "POPCLIP", entityId: popclipId }),
+        });
+        const payload = (await res.json().catch(() => null)) as
+          | { saved?: boolean; savedItemId?: string; collectionId?: string | null }
+          | null;
+        if (!res.ok || !payload || typeof payload.saved !== "boolean") {
+          throw new Error("SAVE_FAILED");
+        }
+        if (payload.saved && payload.savedItemId) {
+          mutateSavedPopclips(
+            (prev) => {
+              const items = prev?.items ?? [];
+              return {
+                items: upsertSavedPopclip(items, {
+                  id: payload.savedItemId as string,
+                  entityId: popclipId,
+                  collectionId: payload.collectionId ?? null,
+                }),
+              };
+            },
+            false
+          );
+        } else {
+          await mutateSavedPopclips();
+        }
+        if (payload.saved) {
+          showToast("Guardado");
+        } else {
+          showToast("No se pudo guardar.");
+        }
+      } catch (_err) {
+        showToast("No se pudo actualizar guardados.");
+      } finally {
+        pendingSaveRef.current = null;
+      }
+    };
+
+    void executePendingSave();
+  }, [mutateSavedPopclips, savedPopclipMap, savedPopclipsData, showToast]);
+
   const handleToggleSave = useCallback(
     async (item: PopClipTileItem) => {
       const current = savedPopclipMap[item.id];
       const wasSaved = Boolean(current);
       const nextSaved = !wasSaved;
+      if (nextSaved && savedUnauth) {
+        openAuthModal(item.id);
+        return;
+      }
       const tempId = `temp-popclip-${item.id}`;
       mutateSavedPopclips(
         (prev) => {
@@ -744,13 +817,13 @@ function ExploreContent() {
           false
         );
         if (err instanceof Error && err.message === "AUTH_REQUIRED") {
-          showToast("Inicia sesion para guardar.");
+          openAuthModal(item.id);
         } else {
           showToast("No se pudo actualizar guardados.");
         }
       }
     },
-    [mutateSavedPopclips, savedPopclipMap, showToast]
+    [mutateSavedPopclips, openAuthModal, savedPopclipMap, savedUnauth, showToast]
   );
 
   const isPopclipSaved = useCallback(
@@ -1851,6 +1924,7 @@ function ExploreContent() {
           </div>
         ) : null}
 
+        <AuthModal open={authModalOpen} onOpenChange={setAuthModalOpen} returnTo={returnToPath} />
         <HomeCategorySheet
           open={categorySheetOpen}
           categories={HOME_CATEGORIES}
