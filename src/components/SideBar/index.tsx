@@ -593,6 +593,7 @@ function SideBarInner() {
     setActiveQueueFilter,
     setQueueFans,
     queueFans,
+    setChatListStatus,
   } = useContext(ConversationContext);
   const [ extrasSummary, setExtrasSummary ] = useState<ExtrasSummary | null>(null);
   const [ extrasSummaryError, setExtrasSummaryError ] = useState<string | null>(null);
@@ -2961,6 +2962,17 @@ function SideBarInner() {
   const isLoading = !chatPages && !chatError;
   const isError = Boolean(fansError);
   const isCreatorMissing = fansErrorCode === "CREATOR_NOT_FOUND";
+  useEffect(() => {
+    if (chatError) {
+      setChatListStatus("error");
+      return;
+    }
+    if (!chatPages) {
+      setChatListStatus("loading");
+      return;
+    }
+    setChatListStatus("ready");
+  }, [chatError, chatPages, setChatListStatus]);
   const filterRowClass =
     "flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left transition hover:bg-[color:var(--surface-2)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--ring)]";
   const countPillClass =

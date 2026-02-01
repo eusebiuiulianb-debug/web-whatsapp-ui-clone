@@ -2,6 +2,7 @@ import { createContext, ReactNode, useCallback, useMemo, useState, type Dispatch
 import { Message, Conversation, ConversationListData } from "../types/Conversation";
 
 export type QueueFilter = "ventas_hoy" | "seguimiento_hoy" | "caducados" | "alta_prioridad" | null;
+export type ChatListStatus = "loading" | "ready" | "error";
 export type ManagerPanelMode = "fan" | "general";
 export type ManagerPanelTab = "manager" | "templates" | "tools";
 export type OpenManagerPanelOptions = {
@@ -24,6 +25,8 @@ interface ConversationContextType {
   setActiveQueueFilter: (value: QueueFilter) => void;
   queueFans: ConversationListData[];
   setQueueFans: (list: ConversationListData[]) => void;
+  chatListStatus: ChatListStatus;
+  setChatListStatus: (status: ChatListStatus) => void;
   managerPanelOpen: boolean;
   managerPanelTab: ManagerPanelTab;
   managerPanelTargetFanId: string | null;
@@ -39,6 +42,7 @@ export const ConversationProvider = ({ children }: ConversationProviderProps) =>
   const [ message, setMessageData ] = useState<Message[]>([]);
   const [ activeQueueFilter, setActiveQueueFilter ] = useState<QueueFilter>(null);
   const [ queueFans, setQueueFans ] = useState<ConversationListData[]>([]);
+  const [ chatListStatus, setChatListStatus ] = useState<ChatListStatus>("loading");
   const [ managerPanelOpen, setManagerPanelOpen ] = useState(false);
   const [ managerPanelTab, setManagerPanelTab ] = useState<ManagerPanelTab>("manager");
   const [ managerPanelTargetFanId, setManagerPanelTargetFanId ] = useState<string | null>(null);
@@ -89,6 +93,8 @@ export const ConversationProvider = ({ children }: ConversationProviderProps) =>
       setActiveQueueFilter,
       queueFans,
       setQueueFans,
+      chatListStatus,
+      setChatListStatus,
       managerPanelOpen,
       managerPanelTab,
       managerPanelTargetFanId,
@@ -101,6 +107,7 @@ export const ConversationProvider = ({ children }: ConversationProviderProps) =>
       message,
       activeQueueFilter,
       queueFans,
+      chatListStatus,
       managerPanelOpen,
       managerPanelTab,
       managerPanelTargetFanId,
@@ -109,6 +116,7 @@ export const ConversationProvider = ({ children }: ConversationProviderProps) =>
       closeManagerPanel,
       setConversation,
       setMessage,
+      setChatListStatus,
     ]
   );
 

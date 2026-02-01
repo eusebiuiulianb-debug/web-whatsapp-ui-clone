@@ -22,6 +22,11 @@ import { PublicStickyHeader } from "../../components/navigation/PublicStickyHead
 import { PopClipViewer } from "../../components/popclips/PopClipViewer";
 import { PopClipTile, type PopClipTileItem } from "../../components/popclips/PopClipTile";
 import { PopClipFeedProvider, usePopClipFeedContext } from "../../components/popclips/PopClipFeedContext";
+import {
+  ExploreSkeleton,
+  ExploreSkeletonChips,
+  ExploreSkeletonSearch,
+} from "../../components/skeletons/ExploreSkeleton";
 import { IconGlyph } from "../../components/ui/IconGlyph";
 import type { ContextMenuItem } from "../../components/ui/ContextMenu";
 import { PillButton } from "../../components/ui/PillButton";
@@ -1132,6 +1137,7 @@ function ExploreContent() {
     []
   );
 
+  const showExploreSkeleton = feedLoading && feedItems.length === 0;
   const showFeedEmpty = !feedLoading && !feedError && filteredFeedItems.length === 0;
   const showLocationBanner = hasLocation;
   const showCreatorsEmpty =
@@ -1626,62 +1632,70 @@ function ExploreContent() {
             </div>
           }
           search={
-            <div ref={heroSearchWrapperRef} className="relative">
-              <label className="sr-only" htmlFor="home-search">
-                Buscar
-              </label>
-              <div className="group flex h-10 items-center gap-3 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 text-[color:var(--text)] transition-colors hover:border-[color:var(--surface-border-hover)] focus-within:border-[color:var(--surface-border-hover)] focus-within:ring-1 focus-within:ring-[color:var(--surface-ring)] sm:h-11">
-                <Search className="h-4 w-4 flex-none text-[color:var(--muted)]" aria-hidden="true" />
-                <input
-                  id="home-search"
-                  ref={heroSearchInputRef}
-                  type="text"
-                  value={search}
-                  onChange={handleSearchChange}
-                  onFocus={handleSearchFocus}
-                  onKeyDown={handleSearchKeyDown}
-                  placeholder="Buscar creadores, packs o PopClips"
-                  aria-controls="search-suggestions"
-                  className="h-7 w-full bg-transparent text-sm text-[color:var(--text)] placeholder:text-[color:var(--muted)] focus:outline-none"
-                />
-                {hasSearchValue ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      clearSearchValue();
-                      focusSearchInput({ suppressOpen: true });
-                    }}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[color:var(--muted)] hover:text-[color:var(--text)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
-                    aria-label="Limpiar búsqueda"
+            showExploreSkeleton ? (
+              <ExploreSkeletonSearch />
+            ) : (
+              <div ref={heroSearchWrapperRef} className="relative">
+                <label className="sr-only" htmlFor="home-search">
+                  Buscar
+                </label>
+                <div className="group flex h-10 items-center gap-3 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 text-[color:var(--text)] transition-colors hover:border-[color:var(--surface-border-hover)] focus-within:border-[color:var(--surface-border-hover)] focus-within:ring-1 focus-within:ring-[color:var(--surface-ring)] sm:h-11">
+                  <Search className="h-4 w-4 flex-none text-[color:var(--muted)]" aria-hidden="true" />
+                  <input
+                    id="home-search"
+                    ref={heroSearchInputRef}
+                    type="text"
+                    value={search}
+                    onChange={handleSearchChange}
+                    onFocus={handleSearchFocus}
+                    onKeyDown={handleSearchKeyDown}
+                    placeholder="Buscar creadores, packs o PopClips"
+                    aria-controls="search-suggestions"
+                    className="h-7 w-full bg-transparent text-sm text-[color:var(--text)] placeholder:text-[color:var(--muted)] focus:outline-none"
+                  />
+                  {hasSearchValue ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        clearSearchValue();
+                        focusSearchInput({ suppressOpen: true });
+                      }}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[color:var(--muted)] hover:text-[color:var(--text)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
+                      aria-label="Limpiar búsqueda"
+                    >
+                      <X className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  ) : null}
+                  <kbd
+                    className="hidden flex-none rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[11px] font-medium text-[color:var(--muted)] sm:inline-flex"
+                    aria-hidden="true"
                   >
-                    <X className="h-4 w-4" aria-hidden="true" />
-                  </button>
-                ) : null}
-                <kbd
-                  className="hidden flex-none rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[11px] font-medium text-[color:var(--muted)] sm:inline-flex"
-                  aria-hidden="true"
-                >
-                  {isMac ? "⌘ K" : "Ctrl K"}
-                </kbd>
+                    {isMac ? "⌘ K" : "Ctrl K"}
+                  </kbd>
+                </div>
+                {renderSearchDropdown()}
               </div>
-              {renderSearchDropdown()}
-            </div>
+            )
           }
           chips={
-            <div className="flex flex-col gap-2">
-              {renderFilterChips()}
-              {selectedCategory ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <FilterChip
-                    label={selectedCategory.label}
-                    active
-                    onClick={() => {
-                      setSelectedCategoryId(null);
-                    }}
-                  />
-                </div>
-              ) : null}
-            </div>
+            showExploreSkeleton ? (
+              <ExploreSkeletonChips />
+            ) : (
+              <div className="flex flex-col gap-2">
+                {renderFilterChips()}
+                {selectedCategory ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <FilterChip
+                      label={selectedCategory.label}
+                      active
+                      onClick={() => {
+                        setSelectedCategoryId(null);
+                      }}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            )
           }
         />
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 md:px-6 lg:px-8 overflow-x-hidden [--bottom-nav-h:72px] pb-[calc(var(--bottom-nav-h,72px)+env(safe-area-inset-bottom))] xl:[--bottom-nav-h:0px]">
@@ -1717,25 +1731,8 @@ function ExploreContent() {
                   </p>
                 </div>
               ) : null}
-              {feedLoading && feedItems.length === 0 ? (
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:gap-6">
-                  {Array.from({ length: FEED_SKELETON_COUNT }).map((_, idx) => (
-                    <div
-                      key={`feed-skeleton-${idx}`}
-                      className="flex flex-col gap-2 rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] p-3"
-                    >
-                      <Skeleton className="aspect-[10/13] w-full rounded-xl sm:aspect-[3/4] md:aspect-[4/5]" />
-                      <div className="flex flex-wrap gap-2">
-                        <Skeleton className="h-5 w-16 rounded-full" />
-                        <Skeleton className="h-5 w-20 rounded-full" />
-                      </div>
-                      <div className="flex gap-2">
-                        <Skeleton className="h-9 flex-1 rounded-full" />
-                        <Skeleton className="h-9 flex-1 rounded-full" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
+              {showExploreSkeleton ? (
+                <ExploreSkeleton cardCount={FEED_SKELETON_COUNT} variant="grid" />
               ) : feedError ? (
                 <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
                   {feedError}

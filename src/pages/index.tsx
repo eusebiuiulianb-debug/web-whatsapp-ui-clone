@@ -3,6 +3,7 @@ import { useContext, useEffect, useRef, useState } from "react";
 import ConversationDetails from "../components/ConversationDetails";
 import SideBar from "../components/SideBar";
 import { CreatorShell } from "../components/creator/CreatorShell";
+import { ChatSkeleton } from "../components/skeletons/ChatSkeleton";
 import { PillButton } from "../components/ui/PillButton";
 import { ConversationContext } from "../context/ConversationContext";
 import { useRouter } from "next/router";
@@ -12,7 +13,7 @@ import { AI_ENABLED } from "../lib/features";
 import { getFanIdFromQuery } from "../lib/navigation/openCreatorChat";
 
 export default function Home() {
-  const { conversation, openManagerPanel } = useContext(ConversationContext);
+  const { conversation, openManagerPanel, chatListStatus } = useContext(ConversationContext);
   const aiEnabled = AI_ENABLED;
   const hasConversation = Boolean(conversation?.id);
   const hasContactName = Boolean(conversation?.contactName);
@@ -22,6 +23,7 @@ export default function Home() {
   const [mobileView, setMobileView] = useState<"board" | "chat">("board");
   const conversationSectionRef = useRef<HTMLDivElement>(null!);
   const lastTrackedFanRef = useRef<string | null>(null);
+  const showChatSkeleton = chatListStatus === "loading";
 
   useEffect(() => {
     if (!hasConversation) return;
@@ -78,17 +80,26 @@ export default function Home() {
       <Head>
         <title>IntimiPop – Panel</title>
       </Head>
-      <CreatorShell
-        mobileView={mobileView}
-        onBackToBoard={() => setMobileView("board")}
-        sidebar={<SideBar />}
-        showChat={hasContactName}
-        renderChat={({ onBackToBoard }) => (
-          <ConversationDetails onBackToBoard={onBackToBoard} />
-        )}
-        fallback={<ChatEmptyState />}
-        conversationSectionRef={conversationSectionRef}
-      />
+      <div className="relative min-h-screen">
+        <div className={showChatSkeleton ? "pointer-events-none opacity-0" : ""}>
+          <CreatorShell
+            mobileView={mobileView}
+            onBackToBoard={() => setMobileView("board")}
+            sidebar={<SideBar />}
+            showChat={hasContactName}
+            renderChat={({ onBackToBoard }) => (
+              <ConversationDetails onBackToBoard={onBackToBoard} />
+            )}
+            fallback={<ChatEmptyState />}
+            conversationSectionRef={conversationSectionRef}
+          />
+        </div>
+        {showChatSkeleton ? (
+          <div className="absolute inset-0 pointer-events-none">
+            <ChatSkeleton mobileView={mobileView} />
+          </div>
+        ) : null}
+      </div>
     </>
   );
 }
