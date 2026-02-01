@@ -12780,7 +12780,6 @@ const INTENT_BADGE_LABELS: Record<string, string> = {
       setEditNameError(null);
       const patchUrl = `/api/fans/${fanId}`;
       if (process.env.NODE_ENV !== "production") {
-        console.log(`[EditName] PATCH ${patchUrl} fanId=${fanId}`);
       }
       const res = await fetch(patchUrl, {
         method: "PATCH",

@@ -49,7 +49,6 @@ type CreatorResponseTime = "INSTANT" | "LT_24H" | "LT_72H";
 
 const DISCOVERABLE_VISIBILITY = ["PUBLIC", "DISCOVERABLE"] as const;
 const DEFAULT_PREVIEW_LIMIT = 3;
-let hasLoggedByIdsShape = false;
 
 const CLIP_SELECT = {
   id: true,
@@ -144,19 +143,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const mapped = mapItems(items);
     const mappedWithReviews = await attachCreatorReviews(mapped);
-    if (process.env.NODE_ENV !== "production" && !hasLoggedByIdsShape) {
-      const first = items[0];
-      if (first) {
-        console.log("[popclips.by-ids] shape", {
-          commentCount: first._count?.comments,
-          ratingAvg: first.creator?.profile?.ratingAvg ?? null,
-          ratingCount: first.creator?.profile?.ratingCount ?? null,
-          profileRatingAvg: first.creator?.profile?.ratingAvg ?? null,
-          profileRatingCount: first.creator?.profile?.ratingCount ?? null,
-        });
-        hasLoggedByIdsShape = true;
-      }
-    }
     const byId = new Map(mappedWithReviews.map((item) => [item.id, item]));
     const ordered = ids.map((id) => byId.get(id)).filter(Boolean) as PopClipFeedItem[];
 

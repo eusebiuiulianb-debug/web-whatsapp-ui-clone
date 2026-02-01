@@ -92,14 +92,8 @@ export function buildExploreSearchParams(
   baseParams: ParsedUrlQuery | string | URLSearchParams,
   locationParams?: ExploreLocation | null
 ) {
-  console.log("[EXPLORE-LOC] buildExploreSearchParams INPUT:", {
-    baseParamsType: typeof baseParams,
-    baseParams: baseParams instanceof URLSearchParams ? baseParams.toString() : baseParams,
-    locationParams
-  });
   const params = toSearchParams(baseParams);
-  console.log("[EXPLORE-LOC] After toSearchParams:", params.toString());
-  
+
   // Eliminar keys de ubicación existentes
   LOCATION_QUERY_KEYS.forEach((key) => params.delete(key));
   
@@ -112,7 +106,6 @@ export function buildExploreSearchParams(
       keysToDelete.push(key);
     }
   });
-  console.log("[EXPLORE-LOC] Keys to delete (paths):", keysToDelete);
   keysToDelete.forEach((key) => params.delete(key));
   
   // Agregar nuevos parámetros de ubicación si existen
@@ -131,21 +124,6 @@ export function buildExploreSearchParams(
       if (trimmed) params.set("locLabel", trimmed);
     }
   }
-  
-  const finalParams = params.toString();
-  console.log("[EXPLORE-LOC] buildExploreSearchParams OUTPUT:", finalParams);
-  
-  // Verificar que lat y lng están presentes
-  const hasLat = params.has("lat");
-  const hasLng = params.has("lng");
-  console.log("[EXPLORE-LOC] Final params verification:", { 
-    hasLat, 
-    hasLng,
-    lat: params.get("lat"),
-    lng: params.get("lng"),
-    radiusKm: params.get("radiusKm"),
-    locLabel: params.get("locLabel")
-  });
   
   return params;
 }
@@ -265,23 +243,9 @@ export function buildExploreApiParams(
   baseParams: ParsedUrlQuery | string | URLSearchParams,
   locationParams?: ExploreLocation | null
 ): URLSearchParams {
-  console.log("[EXPLORE-LOC] buildExploreApiParams INPUT:", {
-    baseParamsType: typeof baseParams,
-    locationParams
-  });
   const params = toSearchParams(baseParams);
   const queryString = buildExploreApiQueryFromSearchParams(params, { location: locationParams ?? null });
   const apiParams = new URLSearchParams(queryString);
-
-  console.log("[EXPLORE-LOC] buildExploreApiParams OUTPUT:", queryString);
-  console.log("[EXPLORE-LOC] API params verification:", {
-    hasLat: apiParams.has("lat"),
-    hasLng: apiParams.has("lng"),
-    hasLocLabel: apiParams.has("locLabel"), // debe ser false
-    lat: apiParams.get("lat"),
-    lng: apiParams.get("lng"),
-    radiusKm: apiParams.get("radiusKm")
-  });
 
   return apiParams;
 }

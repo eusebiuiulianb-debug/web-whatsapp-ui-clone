@@ -76,7 +76,6 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   const { fanId, contentItemId, tier, amount, sessionTag } = req.body || {};
   const clientTxnId = normalizeClientTxnId(req.body?.clientTxnId);
-  console.log("POST /api/extras body:", req.body);
 
   if (!fanId || typeof fanId !== "string") {
     return sendBadRequest(res, "fanId is required");

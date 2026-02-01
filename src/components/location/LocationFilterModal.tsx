@@ -81,7 +81,6 @@ function resolveInitialSelection(
   };
 }
 
-const DEBUG_LOC = process.env.NEXT_PUBLIC_DEBUG_LOC === "1";
 
 export function LocationFilterModal({
   open,
@@ -143,9 +142,6 @@ export function LocationFilterModal({
 
   useEffect(() => {
     if (open && !wasOpenRef.current) {
-      if (DEBUG_LOC) {
-        console.log("[loc] modal open");
-      }
       const nextState = resolveInitialSelection(initialValue, minRadiusKm, maxRadiusKm);
       setRadiusKm(nextState.radiusKm);
       setGeoQuery(nextState.label || "");
@@ -156,9 +152,6 @@ export function LocationFilterModal({
       setSelectedPlace(nextState.selectedPlace);
     }
     if (!open) {
-      if (DEBUG_LOC && wasOpenRef.current) {
-        console.log("[loc] modal close");
-      }
       setApplyPending(false);
       setIsOpen(false);
     }
@@ -248,9 +241,6 @@ export function LocationFilterModal({
   }, [trimmedQuery, hasSelectedPlace, open, selectedPlace]);
 
   const handleSelectGeoResult = (result: GeoSearchResult) => {
-    if (DEBUG_LOC) {
-      console.log("[loc] select suggestion", result.display);
-    }
     geoRequestRef.current += 1;
     setSelectedPlace({
       lat: result.lat,
@@ -267,14 +257,6 @@ export function LocationFilterModal({
   const handleApply = () => {
     if (!hasSelectedPlace || !selectedPlace) return;
     const label = selectedPlace.label || resolvedLabel || "Ubicacion aproximada";
-    if (DEBUG_LOC) {
-      console.log("[loc] apply click", {
-        lat: selectedPlace.lat,
-        lng: selectedPlace.lng,
-        radiusKm,
-        label,
-      });
-    }
     const payload: LocationApplyPayload = {
       lat: selectedPlace.lat,
       lng: selectedPlace.lng,

@@ -82,7 +82,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       date: d.date,
       count: d.suggestionsCount,
     }));
-    console.log("DAILY_USAGE_DEBUG", dailyUsage.slice(-5));
 
     const settings = await prisma.creatorAiSettings.findUnique({
       where: { creatorId: DEFAULT_CREATOR_ID },

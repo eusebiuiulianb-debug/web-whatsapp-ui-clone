@@ -55,8 +55,6 @@ const MAX_KM = 200;
 const MIN_FALLBACK_ITEMS = 6;
 const DISCOVERABLE_VISIBILITY = ["PUBLIC", "DISCOVERABLE"] as const;
 const DEFAULT_PREVIEW_LIMIT = 3;
-let hasLoggedFeedShape = false;
-const DEBUG_EXPLORE = process.env.NEXT_PUBLIC_DEBUG_EXPLORE === "1";
 
 const CLIP_SELECT = {
   id: true,
@@ -121,24 +119,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const geoRequested =
     Number.isFinite(lat) && Number.isFinite(lng) && Number.isFinite(radiusRaw) && (radiusRaw as number) > 0;
   const km = geoRequested ? normalizeKm(radiusRaw) : null;
-  const debugEnabled = getQueryString(req.query.__debug) === "1";
   const avail = parseFlag(req.query.avail);
   const r24 = parseFlag(req.query.r24);
   const vip = parseFlag(req.query.vip);
-
-  if (process.env.NODE_ENV !== "production" && DEBUG_EXPLORE) {
-    console.debug("[api.popclips.feed]", {
-      lat,
-      lng,
-      radiusKm: km,
-      geoRequested,
-      avail,
-      r24,
-      vip,
-      take,
-      cursor,
-    });
-  }
 
   const baseWhere = {
     isActive: true,
@@ -185,19 +168,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const totalBefore = mapped.length;
     const totalWithCoords = mapped.filter((item) => Number.isFinite(item.distanceKm ?? NaN)).length;
     const geoApplied = geoRequested && totalWithCoords > 0;
-    if (process.env.NODE_ENV !== "production" && !hasLoggedFeedShape) {
-      const first = rawClips[0];
-      if (first) {
-        console.log("[popclips.feed] shape", {
-          commentCount: first._count?.comments,
-          ratingAvg: first.creator?.profile?.ratingAvg ?? null,
-          ratingCount: first.creator?.profile?.ratingCount ?? null,
-          profileRatingAvg: first.creator?.profile?.ratingAvg ?? null,
-          profileRatingCount: first.creator?.profile?.ratingCount ?? null,
-        });
-        hasLoggedFeedShape = true;
-      }
-    }
     const strictFiltered = applyFilters(mapped, {
       avail,
       r24,
@@ -238,23 +208,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const sorted = geoApplied ? sortByDistance(itemsWithReviews) : boostEngagement(itemsWithReviews);
     const totalAfter = items.length;
 
-    const payload: Record<string, unknown> = {
+    return res.status(200).json({
       items: sorted,
       nextCursor: nextCursor ?? undefined,
-    };
-    if (debugEnabled) {
-      payload.debug = {
-        geoActive: geoApplied,
-        lat: Number.isFinite(lat ?? NaN) ? lat : null,
-        lng: Number.isFinite(lng ?? NaN) ? lng : null,
-        radiusKm: Number.isFinite(km ?? NaN) ? km : null,
-        totalBefore,
-        totalWithCoords,
-        totalAfter,
-      };
-    }
-
-    return res.status(200).json(payload);
+    });
   } catch (err) {
     console.error("Error loading popclip feed", err);
     return res.status(500).json({ error: "No se pudieron cargar los PopClips" });

@@ -48,6 +48,14 @@ export function ChatSkeleton({ className, mobileView = "board" }: ChatSkeletonPr
               mobileView === "board" ? "hidden lg:flex" : "flex"
             )}
           >
+            <div className="border-b border-[color:var(--surface-border)] px-4 py-3 flex items-center gap-3">
+              <SkeletonCircle className="h-9 w-9" />
+              <div className="flex-1">
+                <Skeleton className="h-3 w-24" />
+                <Skeleton className="mt-2 h-2 w-32" />
+              </div>
+              <Skeleton className="h-8 w-8 rounded-full" />
+            </div>
             <div className="flex-1 overflow-hidden px-4 py-6 space-y-4">
               {bubbles.map((_, idx) => (
                 <div
@@ -64,10 +72,9 @@ export function ChatSkeleton({ className, mobileView = "board" }: ChatSkeletonPr
               ))}
             </div>
             <div className="border-t border-[color:var(--surface-border)] p-4">
-              <Skeleton className="h-11 w-full rounded-full" />
-              <div className="mt-3 flex gap-2">
-                <Skeleton className="h-3 w-16 rounded-full" />
-                <Skeleton className="h-3 w-20 rounded-full" />
+              <div className="flex items-center gap-3">
+                <Skeleton className="h-11 flex-1 rounded-full" />
+                <Skeleton className="h-11 w-11 rounded-full" />
               </div>
             </div>
           </div>

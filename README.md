@@ -1,6 +1,8 @@
-# NOVSY
+# IntimiPop
 
-Chat tipo WhatsApp para creadores y fans (versión preliminar).
+IntimiPop — chat tipo WhatsApp para creadores y fans (web-first).
+
+Dominio: intimipop.com
 
 ## Estado (28 Dic)
 
@@ -41,6 +43,9 @@ npm run dev
 
 Por defecto: `npm run dev` (abre en `http://localhost:3005`).
 Si `3005` está ocupado: `npm run dev -- -p 3007` (o `3008` si también está ocupado).
+
+`npm run dev` = desarrollo.
+`npm run build && npm run start` = simular producción local (start requiere build previo).
 
 Para pasos completos y troubleshooting en Windows, revisa el runbook de abajo.
 

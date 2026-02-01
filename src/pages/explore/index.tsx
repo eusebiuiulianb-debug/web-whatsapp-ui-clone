@@ -22,11 +22,7 @@ import { PublicStickyHeader } from "../../components/navigation/PublicStickyHead
 import { PopClipViewer } from "../../components/popclips/PopClipViewer";
 import { PopClipTile, type PopClipTileItem } from "../../components/popclips/PopClipTile";
 import { PopClipFeedProvider, usePopClipFeedContext } from "../../components/popclips/PopClipFeedContext";
-import {
-  ExploreSkeleton,
-  ExploreSkeletonChips,
-  ExploreSkeletonSearch,
-} from "../../components/skeletons/ExploreSkeleton";
+import { ExploreSkeleton } from "../../components/skeletons/ExploreSkeleton";
 import { IconGlyph } from "../../components/ui/IconGlyph";
 import type { ContextMenuItem } from "../../components/ui/ContextMenu";
 import { PillButton } from "../../components/ui/PillButton";
@@ -302,7 +298,6 @@ function ExploreContent() {
   const router = useRouter();
   const feedContext = usePopClipFeedContext();
   const isDev = process.env.NODE_ENV === "development";
-  const debugExplore = process.env.NEXT_PUBLIC_DEBUG_EXPLORE === "1";
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
@@ -343,7 +338,6 @@ function ExploreContent() {
   const [recommendedCreators, setRecommendedCreators] = useState<RecommendedCreator[]>([]);
   const [creatorsLoading, setCreatorsLoading] = useState(false);
   const [creatorsError, setCreatorsError] = useState("");
-  const lastExploreDebugRef = useRef("");
   const { data: savedPopclipsData, mutate: mutateSavedPopclips } = useSWR(
     SAVED_POPCLIPS_KEY,
     fetchSavedPopclips,
@@ -441,27 +435,6 @@ function ExploreContent() {
   const hasSearchValue = search.length > 0;
   const showSearchPanel = isSearchOpen;
   const returnToPath = "/explore";
-
-  useEffect(() => {
-    if (!debugExplore) return;
-    const feedParams = new URLSearchParams(apiQuery);
-    feedParams.set("take", String(FEED_PAGE_SIZE));
-    const feedEndpoint = `/api/public/popclips/feed?${feedParams.toString()}`;
-    const creatorsParams = new URLSearchParams(apiQuery);
-    creatorsParams.set("limit", "12");
-    const creatorsQuery = creatorsParams.toString();
-    const creatorsEndpoint = creatorsQuery
-      ? `/api/public/creators/recommended?${creatorsQuery}`
-      : "/api/public/creators/recommended";
-    const debugKey = `${apiQuery}|${feedEndpoint}|${creatorsEndpoint}`;
-    if (debugKey === lastExploreDebugRef.current) return;
-    lastExploreDebugRef.current = debugKey;
-    console.debug("[explore]", {
-      filters: appliedFilters,
-    });
-    console.debug("[explore] feed", feedEndpoint);
-    console.debug("[explore] recommended", creatorsEndpoint);
-  }, [apiQuery, appliedFilters, debugExplore]);
 
   useEffect(() => {
     return subscribeCreatorStatusUpdates(() => {
@@ -1056,10 +1029,6 @@ function ExploreContent() {
     const apiParams = new URLSearchParams(apiQuery);
     apiParams.set("take", String(FEED_PAGE_SIZE));
     const endpoint = `/api/public/popclips/feed?${apiParams.toString()}`;
-    console.log("[EXPLORE-LOC] Feed API endpoint:", endpoint);
-    if (debugExplore) {
-      console.debug("[explore] fetch feed", endpoint);
-    }
     setFeedLoading(true);
     setFeedError("");
     setFeedItems([]);
@@ -1091,7 +1060,7 @@ function ExploreContent() {
         }
       });
     return () => controller.abort();
-  }, [apiQuery, debugExplore, seedKey]);
+  }, [apiQuery, seedKey]);
 
   const selectedCategory = useMemo(
     () => HOME_CATEGORIES.find((category) => category.id === selectedCategoryId) ?? null,
@@ -1500,7 +1469,6 @@ function ExploreContent() {
     apiParams.set("take", String(FEED_PAGE_SIZE));
     apiParams.set("cursor", feedCursor);
     const endpoint = `/api/public/popclips/feed?${apiParams.toString()}`;
-    console.log("[EXPLORE-LOC] LoadMore API endpoint:", endpoint);
     setFeedLoadingMore(true);
     try {
       const res = await fetch(endpoint, { signal: controller.signal, cache: "no-store" });
@@ -1567,10 +1535,6 @@ function ExploreContent() {
     const endpoint = queryString
       ? `/api/public/creators/recommended?${queryString}`
       : "/api/public/creators/recommended";
-    console.log("[EXPLORE-LOC] Creators API endpoint:", endpoint);
-    if (debugExplore) {
-      console.debug("[explore] fetch recommended", endpoint);
-    }
     const controller = new AbortController();
     setCreatorsLoading(true);
     setCreatorsError("");
@@ -1600,7 +1564,18 @@ function ExploreContent() {
         if (!controller.signal.aborted) setCreatorsLoading(false);
       });
     return () => controller.abort();
-  }, [apiQuery, debugExplore, seedKey]);
+  }, [apiQuery, seedKey]);
+
+  if (showExploreSkeleton) {
+    return (
+      <>
+        <Head>
+          <title>IntimiPop - Explorar</title>
+        </Head>
+        <ExploreSkeleton cardCount={9} />
+      </>
+    );
+  }
 
   return (
     <>
@@ -1632,70 +1607,62 @@ function ExploreContent() {
             </div>
           }
           search={
-            showExploreSkeleton ? (
-              <ExploreSkeletonSearch />
-            ) : (
-              <div ref={heroSearchWrapperRef} className="relative">
-                <label className="sr-only" htmlFor="home-search">
-                  Buscar
-                </label>
-                <div className="group flex h-10 items-center gap-3 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 text-[color:var(--text)] transition-colors hover:border-[color:var(--surface-border-hover)] focus-within:border-[color:var(--surface-border-hover)] focus-within:ring-1 focus-within:ring-[color:var(--surface-ring)] sm:h-11">
-                  <Search className="h-4 w-4 flex-none text-[color:var(--muted)]" aria-hidden="true" />
-                  <input
-                    id="home-search"
-                    ref={heroSearchInputRef}
-                    type="text"
-                    value={search}
-                    onChange={handleSearchChange}
-                    onFocus={handleSearchFocus}
-                    onKeyDown={handleSearchKeyDown}
-                    placeholder="Buscar creadores, packs o PopClips"
-                    aria-controls="search-suggestions"
-                    className="h-7 w-full bg-transparent text-sm text-[color:var(--text)] placeholder:text-[color:var(--muted)] focus:outline-none"
-                  />
-                  {hasSearchValue ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        clearSearchValue();
-                        focusSearchInput({ suppressOpen: true });
-                      }}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[color:var(--muted)] hover:text-[color:var(--text)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
-                      aria-label="Limpiar búsqueda"
-                    >
-                      <X className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                  ) : null}
-                  <kbd
-                    className="hidden flex-none rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[11px] font-medium text-[color:var(--muted)] sm:inline-flex"
-                    aria-hidden="true"
+            <div ref={heroSearchWrapperRef} className="relative">
+              <label className="sr-only" htmlFor="home-search">
+                Buscar
+              </label>
+              <div className="group flex h-10 items-center gap-3 rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-4 text-[color:var(--text)] transition-colors hover:border-[color:var(--surface-border-hover)] focus-within:border-[color:var(--surface-border-hover)] focus-within:ring-1 focus-within:ring-[color:var(--surface-ring)] sm:h-11">
+                <Search className="h-4 w-4 flex-none text-[color:var(--muted)]" aria-hidden="true" />
+                <input
+                  id="home-search"
+                  ref={heroSearchInputRef}
+                  type="text"
+                  value={search}
+                  onChange={handleSearchChange}
+                  onFocus={handleSearchFocus}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder="Buscar creadores, packs o PopClips"
+                  aria-controls="search-suggestions"
+                  className="h-7 w-full bg-transparent text-sm text-[color:var(--text)] placeholder:text-[color:var(--muted)] focus:outline-none"
+                />
+                {hasSearchValue ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      clearSearchValue();
+                      focusSearchInput({ suppressOpen: true });
+                    }}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[color:var(--muted)] hover:text-[color:var(--text)] focus:outline-none focus:ring-1 focus:ring-[color:var(--ring)]"
+                    aria-label="Limpiar búsqueda"
                   >
-                    {isMac ? "⌘ K" : "Ctrl K"}
-                  </kbd>
-                </div>
-                {renderSearchDropdown()}
+                    <X className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                ) : null}
+                <kbd
+                  className="hidden flex-none rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-1)] px-2 py-0.5 text-[11px] font-medium text-[color:var(--muted)] sm:inline-flex"
+                  aria-hidden="true"
+                >
+                  {isMac ? "⌘ K" : "Ctrl K"}
+                </kbd>
               </div>
-            )
+              {renderSearchDropdown()}
+            </div>
           }
           chips={
-            showExploreSkeleton ? (
-              <ExploreSkeletonChips />
-            ) : (
-              <div className="flex flex-col gap-2">
-                {renderFilterChips()}
-                {selectedCategory ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <FilterChip
-                      label={selectedCategory.label}
-                      active
-                      onClick={() => {
-                        setSelectedCategoryId(null);
-                      }}
-                    />
-                  </div>
-                ) : null}
-              </div>
-            )
+            <div className="flex flex-col gap-2">
+              {renderFilterChips()}
+              {selectedCategory ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <FilterChip
+                    label={selectedCategory.label}
+                    active
+                    onClick={() => {
+                      setSelectedCategoryId(null);
+                    }}
+                  />
+                </div>
+              ) : null}
+            </div>
           }
         />
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 md:px-6 lg:px-8 overflow-x-hidden [--bottom-nav-h:72px] pb-[calc(var(--bottom-nav-h,72px)+env(safe-area-inset-bottom))] xl:[--bottom-nav-h:0px]">
@@ -1731,9 +1698,7 @@ function ExploreContent() {
                   </p>
                 </div>
               ) : null}
-              {showExploreSkeleton ? (
-                <ExploreSkeleton cardCount={FEED_SKELETON_COUNT} variant="grid" />
-              ) : feedError ? (
+              {feedError ? (
                 <div className="rounded-xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] p-4 text-sm text-[color:var(--muted)]">
                   {feedError}
                 </div>

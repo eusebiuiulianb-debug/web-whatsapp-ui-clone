@@ -58,7 +58,6 @@ const MAX_LIMIT = 20;
 const DEFAULT_KM = 25;
 const MIN_KM = 1;
 const MAX_KM = 200;
-const DEBUG_EXPLORE = process.env.NEXT_PUBLIC_DEBUG_EXPLORE === "1";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   res.setHeader("Cache-Control", "no-store");
@@ -83,20 +82,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const limit = Number.isFinite(limitRaw)
     ? Math.max(1, Math.min(MAX_LIMIT, Math.floor(limitRaw)))
     : DEFAULT_LIMIT;
-  const debugEnabled = getQueryString(req.query.__debug) === "1";
-
-  if (process.env.NODE_ENV !== "production" && DEBUG_EXPLORE) {
-    console.debug("[api.creators.recommended]", {
-      lat: latRaw,
-      lng: lngRaw,
-      radiusKm: km,
-      geoRequested,
-      avail,
-      r24,
-      vip,
-      limit,
-    });
-  }
 
   try {
     const creators = await prisma.creator.findMany({
@@ -251,20 +236,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       allowLocation: creator.allowLocation ?? false,
     }));
 
-    const response: Record<string, unknown> = { items: payload };
-    if (debugEnabled) {
-      response.debug = {
-        geoActive: geoApplied,
-        lat: Number.isFinite(latRaw ?? NaN) ? latRaw : null,
-        lng: Number.isFinite(lngRaw ?? NaN) ? lngRaw : null,
-        radiusKm: Number.isFinite(km ?? NaN) ? km : null,
-        totalBefore,
-        totalWithCoords,
-        totalAfter: filtered.length,
-      };
-    }
-
-    return res.status(200).json(response);
+    return res.status(200).json({ items: payload });
   } catch (err) {
     console.error("Error loading recommended creators", err);
     return res.status(200).json({ items: [] });
