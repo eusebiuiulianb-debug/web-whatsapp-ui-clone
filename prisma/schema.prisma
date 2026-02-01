@@ -65,6 +65,7 @@ model CreatorProfile {
   creatorId                 String   @unique
   creator                   Creator  @relation(fields: [creatorId], references: [id])
   isVerified                Boolean  @default(false)
+  isAdult                   Boolean  @default(false)
   offerTags                 Json?
   plan                      CreatorPlan @default(FREE)
   coverUrl                  String?
@@ -671,6 +672,7 @@ model PopClip {
   caption       String?
   videoUrl      String
   posterUrl     String?
+  isSensitive   Boolean      @default(false)
   startAtSec    Int          @default(0)
   durationSec   Int?
   videoWidth    Int?

@@ -6,6 +6,8 @@ import { readFanId, slugifyHandle } from "../../../lib/fan/session";
 type PublicPopClip = {
   id: string;
   title: string | null;
+  isSensitive?: boolean;
+  creatorIsAdult?: boolean;
   videoUrl: string;
   posterUrl: string | null;
   startAtSec: number;
@@ -34,6 +36,7 @@ type PublicPopClip = {
 type PopClipRow = {
   id: string;
   title: string | null;
+  isSensitive?: boolean | null;
   videoUrl: string;
   posterUrl: string | null;
   startAtSec: number;
@@ -89,13 +92,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const creators = await prisma.creator.findMany({
-      include: { packs: true, profile: { select: { visibilityMode: true } } },
+      include: { packs: true, profile: { select: { visibilityMode: true, isAdult: true } } },
     });
     const creator = creators.find((item) => slugifyHandle(item.name) === handle);
     if (!creator) {
       return res.status(404).json({ error: "Not found" });
     }
     const visibilityMode = resolveVisibilityMode(creator.profile?.visibilityMode);
+    const creatorIsAdult = Boolean(creator.profile?.isAdult);
     const previewHandle = readPreviewHandle(req.headers?.cookie);
     const previewAllowed = Boolean(previewHandle && previewHandle === slugifyHandle(creator.name));
     if (visibilityMode === "INVISIBLE" && !previewAllowed) {
@@ -257,6 +261,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       clips: popclipClips,
       creator,
       handle,
+      creatorIsAdult,
       likeCountByClip,
       commentCountByClip,
       likedSet,
@@ -267,6 +272,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       clips: storyClips,
       creator,
       handle,
+      creatorIsAdult,
       likeCountByClip,
       commentCountByClip,
       likedSet,
@@ -297,6 +303,7 @@ function serializePublicClips({
   clips,
   creator,
   handle,
+  creatorIsAdult,
   likeCountByClip,
   commentCountByClip,
   likedSet,
@@ -306,25 +313,28 @@ function serializePublicClips({
   clips: PopClipRow[];
   creator: { packs: Array<{ id: string; name: string; price: string; description: string }> };
   handle: string;
+  creatorIsAdult: boolean;
   likeCountByClip: Map<string, number>;
   commentCountByClip: Map<string, number>;
   likedSet: Set<string>;
   canInteract: boolean;
   canComment: boolean;
 }): PublicPopClip[] {
-  return clips
-    .map((clip) => {
-      const packMeta = resolvePackMeta({
-        clip,
-        creator,
-        handle,
-      });
-      if (!packMeta) return null;
-      const videoUrl = clip.videoUrl || resolveContentMediaUrl(clip.contentItem);
-      if (!videoUrl) return null;
-      return {
+  return clips.flatMap((clip) => {
+    const packMeta = resolvePackMeta({
+      clip,
+      creator,
+      handle,
+    });
+    if (!packMeta) return [];
+    const videoUrl = clip.videoUrl || resolveContentMediaUrl(clip.contentItem);
+    if (!videoUrl) return [];
+    return [
+      {
         id: clip.id,
         title: clip.title ?? null,
+        isSensitive: Boolean(clip.isSensitive),
+        creatorIsAdult,
         videoUrl,
         posterUrl: clip.posterUrl ?? null,
         startAtSec: Number.isFinite(Number(clip.startAtSec)) ? Math.max(0, Number(clip.startAtSec)) : 0,
@@ -338,9 +348,9 @@ function serializePublicClips({
         canComment,
         isStory: Boolean(clip.isStory),
         pack: packMeta,
-      };
-    })
-    .filter((clip): clip is PublicPopClip => Boolean(clip));
+      },
+    ];
+  });
 }
 
 function resolveVisibilityMode(value: unknown): "INVISIBLE" | "SOLO_LINK" | "DISCOVERABLE" | "PUBLIC" {

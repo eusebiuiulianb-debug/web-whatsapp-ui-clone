@@ -58,6 +58,8 @@ export type PublicCatalogItem = {
 export type PublicPopClip = {
   id: string;
   title?: string | null;
+  isSensitive?: boolean;
+  creatorIsAdult?: boolean;
   videoUrl: string;
   posterUrl?: string | null;
   startAtSec?: number | null;

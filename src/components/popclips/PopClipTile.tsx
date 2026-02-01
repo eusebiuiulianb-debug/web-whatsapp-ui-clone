@@ -17,6 +17,7 @@ export type PopClipTileItem = {
   id: string;
   creatorId?: string;
   packId?: string | null;
+  isSensitive?: boolean;
   title?: string | null;
   caption?: string | null;
   thumbnailUrl?: string | null;
@@ -42,6 +43,7 @@ export type PopClipTileItem = {
     isPro?: boolean;
     vipEnabled?: boolean;
     isAvailable?: boolean;
+    isAdult?: boolean;
     responseTime?: string | null;
     locationLabel?: string | null;
     allowLocation?: boolean;

@@ -4,6 +4,7 @@ import { ChevronDown, ChevronUp, MessageCircle, Play, RotateCcw, Sparkles, X } f
 import Image from "next/image";
 import { useRouter } from "next/router";
 import { useCallback, useEffect, useRef, useState, type ReactNode, type TouchEvent, type WheelEvent } from "react";
+import { useAdultGate } from "../../hooks/useAdultGate";
 import { emitFollowChange, setFollowSnapshot } from "../../lib/followEvents";
 import { useFollowState } from "../../lib/useFollowState";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
@@ -89,6 +90,12 @@ export function PopClipViewer({
     : false;
   const requestLocation = feedContext?.onRequestLocation ?? onRequestLocation;
   const canRequestLocation = typeof requestLocation === "function";
+  const handleGateCancel = useCallback(() => {
+    onOpenChange(false);
+  }, [onOpenChange]);
+  const { adultOk, openGate, requireAdultGate, modal: adultGateModal } = useAdultGate({
+    onCancel: handleGateCancel,
+  });
 
   useEffect(() => {
     setCaptionExpanded(false);
@@ -349,11 +356,17 @@ export function PopClipViewer({
   const hiddenServiceCount = Math.max(0, serviceTags.length - visibleServiceTags.length);
   const serviceChipClassName =
     "inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2.5 py-0.5 text-[10px] font-semibold text-[color:var(--text)]";
+  const requiresAdultGate = Boolean(activeItem?.isSensitive || activeItem?.creator?.isAdult);
   const showScrollHint = isDesktop && canScroll && !hasScrolled;
-  const showVideoOverlay = isVideo && (isPaused || isEnded);
+  const showVideoOverlay = isVideo && (isPaused || isEnded) && (!requiresAdultGate || adultOk);
 
   useEffect(() => {
-    if (!open || !isVideo || !videoSrc) return;
+    if (!open || !requiresAdultGate || adultOk) return;
+    openGate();
+  }, [adultOk, open, openGate, requiresAdultGate]);
+
+  useEffect(() => {
+    if (!open || !isVideo || !videoSrc || (requiresAdultGate && !adultOk)) return;
     const videoEl = videoRef.current;
     if (!videoEl) return;
     videoEl.muted = true;
@@ -365,7 +378,7 @@ export function PopClipViewer({
       videoEl.pause();
       videoEl.currentTime = 0;
     };
-  }, [open, activeItem?.id, isVideo, videoSrc]);
+  }, [open, activeItem?.id, adultOk, isVideo, requiresAdultGate, videoSrc]);
 
   useEffect(() => {
     if (open) return;
@@ -376,6 +389,10 @@ export function PopClipViewer({
   }, [open]);
 
   const handleVideoToggle = () => {
+    if (!canShowVideo) {
+      if (requiresAdultGate) openGate();
+      return;
+    }
     const videoEl = videoRef.current;
     if (!videoEl) return;
     if (videoEl.paused) {
@@ -389,6 +406,10 @@ export function PopClipViewer({
   };
 
   const handleVideoOverlayClick = () => {
+    if (!canShowVideo) {
+      if (requiresAdultGate) openGate();
+      return;
+    }
     const videoEl = videoRef.current;
     if (!videoEl) return;
     if (isEnded) {
@@ -461,6 +482,9 @@ export function PopClipViewer({
 
   if (!open || !activeItem) return null;
 
+  const canViewMedia = !requiresAdultGate || adultOk;
+  const canShowVideo = isVideo && videoSrc && canViewMedia;
+  const showSensitiveOverlay = requiresAdultGate && !adultOk;
   const isClipSaved = isSaved ? isSaved(activeItem) : false;
   const handleClose = () => onOpenChange(false);
   const chatHref = buildChatHref(activeItem);
@@ -478,27 +502,57 @@ export function PopClipViewer({
     });
   };
 
+  const handleProfileClick = () => {
+    if (!profileHref) return;
+    const go = () => {
+      if (typeof window === "undefined") {
+        void router.push(profileHref);
+        return;
+      }
+      window.requestAnimationFrame(() => {
+        void router.push(profileHref);
+      });
+    };
+    if (requiresAdultGate) {
+      requireAdultGate(go);
+      return;
+    }
+    go();
+  };
+
+  const handleChatClick = () => {
+    if (!chatHref) return;
+    if (requiresAdultGate) {
+      requireAdultGate(() => {
+        navigateFromViewer(chatHref);
+      });
+      return;
+    }
+    navigateFromViewer(chatHref);
+  };
+
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay
-          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm"
-          onClick={handleClose}
-        />
-        <div className="fixed inset-0 z-50 flex items-stretch justify-center p-0 lg:items-center lg:p-6 pointer-events-none">
-          <Dialog.Content
-            role="dialog"
-            aria-label={`PopClip de @${activeItem.creator.handle}`}
-            onWheel={handleWheel}
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
-            className="pointer-events-auto relative flex h-screen min-h-screen h-[100dvh] min-h-[100dvh] w-full max-h-[100dvh] flex-col bg-[color:var(--surface-1)] text-[color:var(--text)] lg:h-auto lg:max-h-[90vh] lg:w-[min(92vw,430px)] lg:rounded-3xl lg:border lg:border-[color:var(--surface-border)] lg:shadow-2xl [--bottom-nav-h:72px] xl:[--bottom-nav-h:0px]"
-          >
+    <>
+      <Dialog.Root open={open} onOpenChange={onOpenChange}>
+        <Dialog.Portal>
+          <Dialog.Overlay
+            className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm"
+            onClick={handleClose}
+          />
+          <div className="fixed inset-0 z-50 flex items-stretch justify-center p-0 lg:items-center lg:p-6 pointer-events-none">
+            <Dialog.Content
+              role="dialog"
+              aria-label={`PopClip de @${activeItem.creator.handle}`}
+              onWheel={handleWheel}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+              className="pointer-events-auto relative flex h-screen min-h-screen h-[100dvh] min-h-[100dvh] w-full max-h-[100dvh] flex-col bg-[color:var(--surface-1)] text-[color:var(--text)] lg:h-auto lg:max-h-[90vh] lg:w-[min(92vw,430px)] lg:rounded-3xl lg:border lg:border-[color:var(--surface-border)] lg:shadow-2xl [--bottom-nav-h:72px] xl:[--bottom-nav-h:0px]"
+            >
             <div className="flex h-full min-h-0 flex-col">
               <div className="flex-shrink-0 px-4 pt-5 lg:px-5 lg:pt-5">
                 <div className="relative aspect-[9/16] w-full max-h-[70dvh] overflow-hidden rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)]">
-                  {isVideo && videoSrc ? (
+                  {canShowVideo ? (
                     <video
                       ref={videoRef}
                       src={videoSrc}
@@ -532,7 +586,7 @@ export function PopClipViewer({
                       layout="fill"
                       objectFit="cover"
                       sizes="(max-width: 1024px) 100vw, 430px"
-                      className="object-cover"
+                      className={`object-cover${showSensitiveOverlay ? " blur-sm scale-105" : ""}`}
                     />
                   ) : (
                     <div className="relative flex h-full w-full items-center justify-center overflow-hidden bg-gradient-to-br from-[color:rgba(10,14,24,0.9)] via-[color:rgba(18,24,38,0.9)] to-[color:rgba(6,9,18,0.95)] text-white/60">
@@ -547,6 +601,17 @@ export function PopClipViewer({
                     </div>
                   )}
                   <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 via-black/10 to-transparent" />
+                  {showSensitiveOverlay ? (
+                    <button
+                      type="button"
+                      onClick={openGate}
+                      className="absolute inset-0 z-20 flex items-center justify-center bg-black/55 text-white/90 backdrop-blur-sm"
+                    >
+                      <span className="rounded-full border border-white/30 bg-black/50 px-4 py-2 text-[11px] font-semibold">
+                        Confirmar 18+ para ver
+                      </span>
+                    </button>
+                  ) : null}
                   {showVideoOverlay ? (
                     <button
                       type="button"
@@ -710,7 +775,7 @@ export function PopClipViewer({
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      onClick={() => navigateFromViewer(chatHref)}
+                      onClick={handleChatClick}
                       className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] px-4 text-[12px] font-semibold text-white shadow-sm transition hover:bg-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
                     >
                       <span className="inline-flex items-center gap-2">
@@ -720,7 +785,7 @@ export function PopClipViewer({
                     </button>
                     <button
                       type="button"
-                      onClick={() => navigateFromViewer(profileHref)}
+                      onClick={handleProfileClick}
                       className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-white/20 bg-white/5 px-4 text-[12px] font-semibold text-white/90 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
                     >
                       <span className="inline-flex min-w-0 items-center gap-2">
@@ -776,10 +841,12 @@ export function PopClipViewer({
             ) : null}
             <div ref={setMenuPortalRef} className="contents" />
           </Dialog.Content>
-          <ServicesSheet open={servicesOpen} onOpenChange={setServicesOpen} tags={serviceTags} />
-        </div>
-      </Dialog.Portal>
-    </Dialog.Root>
+            <ServicesSheet open={servicesOpen} onOpenChange={setServicesOpen} tags={serviceTags} />
+          </div>
+        </Dialog.Portal>
+      </Dialog.Root>
+      {adultGateModal}
+    </>
   );
 }
 

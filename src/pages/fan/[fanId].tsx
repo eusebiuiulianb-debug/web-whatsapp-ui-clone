@@ -38,6 +38,7 @@ import { applyOptimisticReaction, getMineEmoji, type ReactionSummaryEntry } from
 import { useEmojiFavorites } from "../../hooks/useEmojiFavorites";
 import clsx from "clsx";
 import { AdultGateOverlay } from "../../components/ui/AdultGateOverlay";
+import { useAdultGate } from "../../hooks/useAdultGate";
 import { readAdultConfirmedAtFromStorage, writeAdultConfirmedAtToStorage } from "../../lib/adultGate";
 import { AccessPaywallCard, type AccessPaywallPack } from "../../components/fan/AccessPaywallCard";
 import { PpvContentSheet, type PpvAttachment } from "../../components/ppv/PpvContentSheet";
@@ -86,6 +87,7 @@ export type FanChatPageProps = {
   adultConfirmedAt?: string | null;
   adultConfirmVersion?: string | null;
   adultGatePolicy?: "STRICT" | "LEAD_CAPTURE";
+  creatorIsAdult?: boolean;
   fanIdOverride?: string;
   inviteOverride?: boolean;
   forceAccessRefresh?: boolean;
@@ -172,6 +174,7 @@ export function FanChatPage({
   adultConfirmedAt: initialAdultConfirmedAt,
   adultConfirmVersion: initialAdultConfirmVersion,
   adultGatePolicy,
+  creatorIsAdult,
   fanIdOverride,
   inviteOverride,
   forceAccessRefresh,
@@ -347,6 +350,22 @@ export function FanChatPage({
   } = useVoiceRecorder({ mimePreferences: VOICE_MIME_PREFERENCES });
   const voiceObjectUrlsRef = useRef<Map<string, string>>(new Map());
   const voicePreviewRef = useRef<HTMLAudioElement | null>(null);
+  const requiresAdultGate = Boolean(creatorIsAdult);
+  const handleAdultGateConfirm = useCallback(() => {
+    const confirmedAt = new Date().toISOString();
+    setAdultConfirmedAt(confirmedAt);
+    setAdultConfirmVersion("cookie");
+    setAdultStatusLoaded(true);
+    if (fanId) {
+      setAdultSyncPending(true);
+    }
+  }, [fanId]);
+  const { adultOk, openGate, modal: adultGateModal } = useAdultGate({
+    onCancel: () => {
+      void router.push("/explore");
+    },
+    onConfirm: handleAdultGateConfirm,
+  });
 
   const catalogPackItems = useMemo(
     () => catalogItems.filter((item) => item.type === "PACK" && item.isActive !== false),
@@ -410,7 +429,9 @@ export function FanChatPage({
   const isAdultGateStrict = isAdultGateActive && resolvedAdultGatePolicy === "STRICT";
   const isAdultGateLeadCapture = isAdultGateActive && resolvedAdultGatePolicy === "LEAD_CAPTURE";
   const isAdultGatePurchaseBlocked = isAdultGateLeadCapture;
-  const isComposerDisabled = sending || isOnboardingVisible || onboardingSaving || isAdultGateStrict || accessBlocked;
+  const shouldBlockChat = requiresAdultGate && !adultOk;
+  const isComposerDisabled =
+    sending || isOnboardingVisible || onboardingSaving || isAdultGateStrict || accessBlocked || shouldBlockChat;
 
   const showFanToast = useCallback((message: string) => {
     setFanToast(message);
@@ -419,6 +440,11 @@ export function FanChatPage({
     }
     fanToastTimerRef.current = window.setTimeout(() => setFanToast(""), 2200);
   }, []);
+
+  useEffect(() => {
+    if (!requiresAdultGate || adultOk) return;
+    openGate();
+  }, [adultOk, openGate, requiresAdultGate]);
 
   useEffect(() => {
     if (!creatorHandle || typeof window === "undefined") return;
@@ -524,6 +550,16 @@ export function FanChatPage({
       }
       return;
     }
+    if (adultOk) {
+      const confirmedAt = new Date().toISOString();
+      setAdultConfirmedAt(confirmedAt);
+      setAdultConfirmVersion("cookie");
+      setAdultStatusLoaded(true);
+      if (fanId) {
+        setAdultSyncPending(true);
+      }
+      return;
+    }
     const stored = readAdultConfirmedAtFromStorage();
     if (!stored) return;
     const confirmedAt = new Date(stored).toISOString();
@@ -533,7 +569,7 @@ export function FanChatPage({
     if (fanId) {
       setAdultSyncPending(true);
     }
-  }, [adultConfirmedAt, fanId]);
+  }, [adultConfirmedAt, adultOk, fanId]);
 
   useEffect(() => {
     if (!adultSyncPending || !fanId) return;
@@ -2877,7 +2913,12 @@ export function FanChatPage({
   }, [visibleMessages.length, isAtBottom, scrollToBottom]);
 
   return (
-    <div className="flex flex-col h-[100dvh] max-h-[100dvh] overflow-hidden bg-[color:var(--surface-0)] text-[color:var(--text)]">
+    <div
+      className={clsx(
+        "flex flex-col h-[100dvh] max-h-[100dvh] overflow-hidden bg-[color:var(--surface-0)] text-[color:var(--text)]",
+        shouldBlockChat && "pointer-events-none"
+      )}
+    >
       <Head>
         <title>{`Chat con ${creatorName} · NOVSY`}</title>
       </Head>
@@ -3812,6 +3853,7 @@ export function FanChatPage({
           )}
         </div>
       </BottomSheet>
+      {adultGateModal}
       <AdultGateOverlay
         open={isAdultGateStrict}
         title="Confirmación 18+"

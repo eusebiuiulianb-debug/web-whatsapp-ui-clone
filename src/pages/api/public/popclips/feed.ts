@@ -10,6 +10,7 @@ type PopClipFeedItem = {
   id: string;
   creatorId: string;
   packId?: string | null;
+  isSensitive?: boolean;
   title: string | null;
   caption?: string | null;
   thumbnailUrl: string | null;
@@ -29,6 +30,7 @@ type PopClipFeedItem = {
     avgResponseHours: number | null;
     responseTime: string | null;
     isAvailable: boolean;
+    isAdult?: boolean;
     locationLabel: string | null;
     allowLocation?: boolean;
     popclipPreviewLimit?: number;
@@ -62,6 +64,7 @@ const CLIP_SELECT = {
   caption: true,
   catalogItemId: true,
   posterUrl: true,
+  isSensitive: true,
   durationSec: true,
   savesCount: true,
   createdAt: true,
@@ -81,6 +84,7 @@ const CLIP_SELECT = {
           locationVisibility: true,
           allowDiscoveryUseLocation: true,
           isVerified: true,
+          isAdult: true,
           plan: true,
           popclipPreviewLimit: true,
           ratingAvg: true,
@@ -254,6 +258,7 @@ function mapFeedItems(
     const vipEnabled = Boolean(clip.creator?.profile?.vipOnly) || availabilityValue === "VIP_ONLY";
     const isAvailable = availabilityValue === "AVAILABLE" || availabilityValue === "VIP_ONLY";
     const isVerified = Boolean(clip.creator?.profile?.isVerified ?? clip.creator?.isVerified);
+    const isAdult = Boolean(clip.creator?.profile?.isAdult);
     const isPro = clip.creator?.profile?.plan === "PRO";
     const popclipPreviewLimit = normalizePreviewLimit(clip.creator?.profile?.popclipPreviewLimit);
     const ratingAvg = clip.creator?.profile?.ratingAvg ?? null;
@@ -278,6 +283,7 @@ function mapFeedItems(
       id: clip.id,
       creatorId: clip.creator?.id ?? "",
       packId: clip.catalogItemId ?? null,
+      isSensitive: Boolean(clip.isSensitive),
       title: clip.title ?? null,
       caption: clip.caption ?? clip.title ?? null,
       thumbnailUrl: clip.posterUrl ?? null,
@@ -297,6 +303,7 @@ function mapFeedItems(
         avgResponseHours,
         responseTime,
         isAvailable,
+        isAdult,
         locationLabel,
         allowLocation,
         popclipPreviewLimit,

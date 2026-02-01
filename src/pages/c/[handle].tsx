@@ -1,4 +1,5 @@
 import Head from "next/head";
+import Image from "next/image";
 import type { GetServerSideProps } from "next";
 import { randomUUID } from "crypto";
 import {
@@ -36,6 +37,7 @@ import { ensureAnalyticsCookie } from "../../lib/analyticsCookie";
 import { track } from "../../lib/analyticsClient";
 import { ANALYTICS_EVENTS } from "../../lib/analyticsEvents";
 import { notifyCreatorStatusUpdated } from "../../lib/creatorStatusEvents";
+import { useAdultGate } from "../../hooks/useAdultGate";
 import { emitFollowChange, getFollowSnapshot } from "../../lib/followEvents";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 import { getPublicProfileStats } from "../../lib/publicProfileStats";
@@ -64,6 +66,7 @@ type Props = {
   responseSla?: string | null;
   availability?: string | null;
   locale?: "es" | "en";
+  creatorIsAdult?: boolean;
 };
 
 type CatalogItemRow = {
@@ -194,6 +197,7 @@ export default function PublicCreatorByHandle({
   avatarUrl,
   creatorHandle,
   isVerified,
+  creatorIsAdult,
   plan,
   offerTags,
   isCreatorViewer,
@@ -250,6 +254,21 @@ export default function PublicCreatorByHandle({
   const followState = useFollowState(creatorId, {
     isFollowing: Boolean(isFollowing),
     followersCount: initialFollowersCount,
+  });
+  const requiresAdultGate = Boolean(creatorIsAdult);
+  const handleAdultGateCancel = useCallback(() => {
+    if (activePopclip) {
+      setActivePopclip(null);
+      return;
+    }
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+      return;
+    }
+    void router.push("/explore");
+  }, [activePopclip, router]);
+  const { adultOk, openGate, requireAdultGate, modal: adultGateModal } = useAdultGate({
+    onCancel: handleAdultGateCancel,
   });
   const isFollowingState = followState.isFollowing;
   const followersCount = typeof followState.followersCount === "number" ? followState.followersCount : 0;
@@ -648,6 +667,7 @@ export default function PublicCreatorByHandle({
     displayName: popclipCreatorName,
     avatarUrl: avatarUrl ?? null,
     isVerified: Boolean(isVerified),
+    isAdult: Boolean(creatorIsAdult),
     isPro: plan === "PRO",
     isAvailable: creatorAvailability === "AVAILABLE",
     responseTime: responseSlaLabel ?? "",
@@ -750,6 +770,13 @@ export default function PublicCreatorByHandle({
   const activePopclipChatHref = activePopclip
     ? buildDraftHref(buildPopclipDraft(activePopclipTitle, activePopclipPackTitle))
     : "";
+  const activePopclipPreview =
+    activePopclip?.posterUrl || activePopclip?.pack?.coverUrl || "";
+  const activePopclipRequiresGate = Boolean(
+    activePopclip && (activePopclip.isSensitive || creatorIsAdult || activePopclip.creatorIsAdult)
+  );
+  const canViewActivePopclip = !activePopclipRequiresGate || adultOk;
+  const showActivePopclipBlur = activePopclipRequiresGate && !adultOk;
   const activePopclipIndex = activePopclip
     ? highlightPopclipsSource.findIndex((clip) => clip.id === activePopclip.id)
     : -1;
@@ -796,7 +823,12 @@ export default function PublicCreatorByHandle({
   }, [activePopclip, handlePopclipNavigate]);
 
   useEffect(() => {
-    if (!activePopclipId) return;
+    if (!activePopclip || !activePopclipRequiresGate || adultOk) return;
+    openGate();
+  }, [activePopclip, activePopclipRequiresGate, adultOk, openGate]);
+
+  useEffect(() => {
+    if (!activePopclipId || !canViewActivePopclip) return;
     const video = popclipVideoRef.current;
     if (!video) return;
     try {
@@ -808,7 +840,7 @@ export default function PublicCreatorByHandle({
     } catch (_err) {
       // ignore autoplay errors
     }
-  }, [activePopclipId]);
+  }, [activePopclipId, canViewActivePopclip]);
 
   useEffect(() => {
     if (activePopclipIndex < 0) {
@@ -820,11 +852,18 @@ export default function PublicCreatorByHandle({
       popclipPreloadRef.current = null;
       return;
     }
+    const nextRequiresGate = Boolean(
+      nextClip.isSensitive || creatorIsAdult || nextClip.creatorIsAdult
+    );
+    if (nextRequiresGate && !adultOk) {
+      popclipPreloadRef.current = null;
+      return;
+    }
     const preload = document.createElement("video");
     preload.preload = "metadata";
     preload.src = nextClip.videoUrl;
     popclipPreloadRef.current = preload;
-  }, [activePopclipIndex, highlightPopclipsSource]);
+  }, [activePopclipIndex, adultOk, creatorIsAdult, highlightPopclipsSource]);
 
   const handlePopclipWheel = useCallback(
     (event: WheelEvent<HTMLDivElement>) => {
@@ -1029,6 +1068,11 @@ export default function PublicCreatorByHandle({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [highlightModalOpen]);
 
+  useEffect(() => {
+    if (!requiresAdultGate || adultOk) return;
+    openGate();
+  }, [adultOk, openGate, requiresAdultGate]);
+
   const handleSelectHighlightItem = (item: HighlightItem) => {
     if (item.kind === "popclip") {
       if (item.popclip) {
@@ -1051,6 +1095,7 @@ export default function PublicCreatorByHandle({
     return {
       id: clip.id,
       creatorId: creatorId || undefined,
+      isSensitive: Boolean(clip.isSensitive),
       title,
       caption: captionSource || null,
       thumbnailUrl: clip.posterUrl ?? clip.pack.coverUrl ?? null,
@@ -1353,6 +1398,12 @@ export default function PublicCreatorByHandle({
 
   const handleOpenChat = async (event: MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
+    if (requiresAdultGate) {
+      requireAdultGate(() => {
+        void openChat();
+      });
+      return;
+    }
     await openChat();
   };
 
@@ -2037,6 +2088,7 @@ export default function PublicCreatorByHandle({
           primaryActionDisabled={locationSaving}
           errorMessage={locationError}
         />
+        {adultGateModal}
         {activePopclip && (
           <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm" onClick={handleClosePopclipViewer}>
             <div className="fixed inset-0 flex items-end sm:items-center justify-center p-3 sm:p-6">
@@ -2103,19 +2155,45 @@ export default function PublicCreatorByHandle({
                 <div className="flex-1 overflow-y-auto px-4 pb-4 pt-4 sm:px-5 sm:pb-5 space-y-4">
                   <div className="mx-auto w-full max-w-sm sm:max-w-md">
                     <div className="relative aspect-[9/16] w-full overflow-hidden rounded-2xl border border-[color:var(--surface-border)] bg-[color:var(--surface-2)]">
-                      <video
-                        ref={popclipVideoRef}
-                        src={activePopclip.videoUrl}
-                        poster={activePopclip.posterUrl ? normalizeImageSrc(activePopclip.posterUrl) : undefined}
-                        controls
-                        playsInline
-                        autoPlay
-                        muted
-                        loop={!activePopclip.durationSec}
-                        preload="metadata"
-                        onTimeUpdate={handlePopclipTimeUpdate}
-                        className="absolute inset-0 h-full w-full object-cover"
-                      />
+                      {canViewActivePopclip && activePopclip.videoUrl ? (
+                        <video
+                          ref={popclipVideoRef}
+                          src={activePopclip.videoUrl}
+                          poster={activePopclip.posterUrl ? normalizeImageSrc(activePopclip.posterUrl) : undefined}
+                          controls
+                          playsInline
+                          autoPlay
+                          muted
+                          loop={!activePopclip.durationSec}
+                          preload="metadata"
+                          onTimeUpdate={handlePopclipTimeUpdate}
+                          className="absolute inset-0 h-full w-full object-cover"
+                        />
+                      ) : activePopclipPreview ? (
+                        <Image
+                          src={normalizeImageSrc(activePopclipPreview)}
+                          alt={activePopclipTitle}
+                          layout="fill"
+                          objectFit="cover"
+                          sizes="(max-width: 1024px) 100vw, 420px"
+                          className={`object-cover${showActivePopclipBlur ? " blur-sm scale-105" : ""}`}
+                        />
+                      ) : (
+                        <div className="absolute inset-0 flex items-center justify-center text-xs text-[color:var(--muted)]">
+                          Contenido +18
+                        </div>
+                      )}
+                      {showActivePopclipBlur ? (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+                          <button
+                            type="button"
+                            onClick={openGate}
+                            className="rounded-full border border-white/30 bg-white/10 px-4 py-2 text-[11px] font-semibold text-white hover:bg-white/20"
+                          >
+                            Confirmar 18+ para ver
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-[color:var(--muted)]">
@@ -2336,6 +2414,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
   const plan = profile
     ? resolveCreatorPlan((profile as { plan?: unknown }).plan)
     : resolveCreatorPlan((match as { plan?: unknown }).plan);
+  const creatorIsAdult = Boolean(profile?.isAdult);
   const profilePayload = {
     creatorId: match.id,
     creatorName: match.name || "Creador",
@@ -2364,6 +2443,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
       catalogError,
       responseSla: profile?.responseSla ?? null,
       availability: profile?.availability ?? null,
+      creatorIsAdult,
       showPreviewBanner,
       locale,
     },

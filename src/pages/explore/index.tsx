@@ -65,6 +65,7 @@ type PopClipFeedItem = {
   id: string;
   creatorId: string;
   packId?: string | null;
+  isSensitive?: boolean;
   title?: string | null;
   caption?: string | null;
   thumbnailUrl?: string | null;
@@ -87,6 +88,7 @@ type PopClipFeedItem = {
     isPro?: boolean;
     vipEnabled?: boolean;
     isAvailable?: boolean;
+    isAdult?: boolean;
     locationLabel?: string | null;
     allowLocation?: boolean;
     responseTime?: string | null;

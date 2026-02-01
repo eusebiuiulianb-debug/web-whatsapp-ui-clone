@@ -8,6 +8,7 @@ export type FanChatSSRProps = {
   adultConfirmedAt: string | null;
   adultConfirmVersion: string | null;
   adultGatePolicy: "STRICT" | "LEAD_CAPTURE";
+  creatorIsAdult: boolean;
 };
 
 export async function buildFanChatProps(fanId: string): Promise<FanChatSSRProps> {
@@ -24,13 +25,19 @@ export async function buildFanChatProps(fanId: string): Promise<FanChatSSRProps>
   let adultConfirmedAt: string | null = null;
   let adultConfirmVersion: string | null = null;
   let adultGatePolicy: "STRICT" | "LEAD_CAPTURE" = "STRICT";
+  let creatorIsAdult = false;
 
   if (fanId) {
     const fan = await prisma.fan.findUnique({
       where: { id: fanId },
       include: {
         accessGrants: true,
-        creator: { select: { aiSettings: { select: { adultGatePolicy: true } } } },
+        creator: {
+          select: {
+            aiSettings: { select: { adultGatePolicy: true } },
+            profile: { select: { isAdult: true } },
+          },
+        },
       },
     });
 
@@ -49,7 +56,16 @@ export async function buildFanChatProps(fanId: string): Promise<FanChatSSRProps>
       adultConfirmVersion = (fan as any).adultConfirmVersion ?? null;
       adultGatePolicy =
         (fan.creator?.aiSettings?.adultGatePolicy as "STRICT" | "LEAD_CAPTURE" | null) ?? "STRICT";
+      creatorIsAdult = Boolean(fan.creator?.profile?.isAdult);
     }
+  }
+
+  if (!creatorIsAdult) {
+    const profile = await prisma.creatorProfile.findUnique({
+      where: { creatorId },
+      select: { isAdult: true },
+    });
+    creatorIsAdult = Boolean(profile?.isAdult);
   }
 
   const accessSummary = getAccessSummary({
@@ -67,5 +83,6 @@ export async function buildFanChatProps(fanId: string): Promise<FanChatSSRProps>
     adultConfirmedAt,
     adultConfirmVersion,
     adultGatePolicy,
+    creatorIsAdult,
   };
 }
