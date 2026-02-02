@@ -40,6 +40,8 @@ import {
   upsertSavedPopclip,
 } from "../../lib/savedPopclips";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
+import { saveViewerNavigationState, restoreViewerScrollPosition } from "../../lib/navigation";
+import { buildCreatorChatHref } from "../../lib/chatHref";
 
 const FEED_PAGE_SIZE = 24;
 const FEED_SKELETON_COUNT = 12;
@@ -1511,6 +1513,10 @@ function ExploreContent() {
   const openPopclipWithItems = useCallback((items: PopClipTileItem[], item: PopClipTileItem) => {
     const resolvedItems = items.length > 0 ? items : [item];
     const nextIndex = resolvedItems.findIndex((entry) => entry.id === item.id);
+    
+    // Save navigation state before opening viewer
+    saveViewerNavigationState(returnToPath);
+    
     setViewerItems(resolvedItems);
     const resolvedIndex = nextIndex >= 0 ? nextIndex : 0;
     setViewerIndex(resolvedIndex);
@@ -1521,7 +1527,7 @@ function ExploreContent() {
         resolvedIndex
       );
     }
-  }, [feedContext]);
+  }, [feedContext, returnToPath]);
 
   const openPopclip = useCallback(
     (item: PopClipTileItem) => {
@@ -1529,6 +1535,11 @@ function ExploreContent() {
     },
     [filteredFeedItems, openPopclipWithItems]
   );
+
+  // Restore scroll position on mount
+  useEffect(() => {
+    restoreViewerScrollPosition();
+  }, []);
 
   useEffect(() => {
     const apiParams = new URLSearchParams(apiQuery);
@@ -1740,7 +1751,7 @@ function ExploreContent() {
                         item={item}
                         onOpen={openPopclip}
                         profileHref={`/c/${encodeURIComponent(item.creator.handle)}`}
-                        chatHref={appendReturnTo(`/go/${encodeURIComponent(item.creator.handle)}`, returnToPath)}
+                        chatHref={buildCreatorChatHref(item.creator.handle, returnToPath)}
                         isSaved={Boolean(savedPopclipMap[item.id])}
                         onToggleSave={handleToggleSave}
                         hasLocationCenter={hasLocation}
@@ -1922,9 +1933,7 @@ function ExploreContent() {
           onToggleSave={handleToggleSave}
           isSaved={isPopclipSaved}
           menuItems={buildViewerMenuItems}
-          buildChatHref={(item) =>
-            appendReturnTo(`/go/${encodeURIComponent(item.creator.handle)}`, returnToPath)
-          }
+          buildChatHref={(item) => buildCreatorChatHref(item.creator.handle, returnToPath)}
           buildProfileHref={(item) => `/c/${encodeURIComponent(item.creator.handle)}#popclips`}
         />
         <CaptionSheet

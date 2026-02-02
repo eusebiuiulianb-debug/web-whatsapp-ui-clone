@@ -6,6 +6,9 @@ import { useRouter } from "next/router";
 import { useCallback, useEffect, useRef, useState, type ReactNode, type TouchEvent, type WheelEvent } from "react";
 import { useAdultGate } from "../../hooks/useAdultGate";
 import { emitFollowChange, setFollowSnapshot } from "../../lib/followEvents";
+import { getAdultGateState } from "../../store/useAdultGate";
+import { buildReturnUrl, getViewerReturnPath } from "../../lib/navigation";
+import { buildCreatorChatHref } from "../../lib/chatHref";
 import { useFollowState } from "../../lib/useFollowState";
 import { normalizeImageSrc } from "../../utils/normalizeImageSrc";
 import { formatDistanceKm } from "../../utils/formatDistanceKm";
@@ -93,9 +96,15 @@ export function PopClipViewer({
   const handleGateCancel = useCallback(() => {
     onOpenChange(false);
   }, [onOpenChange]);
-  const { adultOk, openGate, requireAdultGate, modal: adultGateModal } = useAdultGate({
+  
+  // Use global store state for adult gate
+  const storeState = getAdultGateState();
+  const { adultOk: hookAdultOk, openGate, requireAdultGate, modal: adultGateModal } = useAdultGate({
     onCancel: handleGateCancel,
   });
+  
+  // Combine store and hook state
+  const adultOk = storeState.adultOk || hookAdultOk;
 
   useEffect(() => {
     setCaptionExpanded(false);
@@ -277,7 +286,13 @@ export function PopClipViewer({
     activeItem?.mediaType === "VIDEO" ||
     activeItem?.assetType === "video" ||
     Boolean(rawVideoUrl);
-  const videoSrc = normalizeMediaSrc(rawVideoUrl);
+  
+  // CRITICAL: Determine if adult gating is required BEFORE resolving video src
+  const requiresAdultGate = Boolean(activeItem?.isSensitive || activeItem?.creator?.isAdult);
+  
+  // CRITICAL: Only resolve videoSrc when gating is not active
+  // This prevents video URL resolution and potential preload before adult confirmation
+  const videoSrc = !requiresAdultGate || adultOk ? normalizeMediaSrc(rawVideoUrl) : '';
   const showImage = Boolean(previewSrc);
   const captionText = (activeItem?.caption ?? "").trim() || (activeItem?.title ?? "PopClip");
   const isCaptionLong = captionText.length > CAPTION_PREVIEW_LIMIT;
@@ -356,7 +371,6 @@ export function PopClipViewer({
   const hiddenServiceCount = Math.max(0, serviceTags.length - visibleServiceTags.length);
   const serviceChipClassName =
     "inline-flex items-center rounded-full border border-[color:var(--surface-border)] bg-[color:var(--surface-2)] px-2.5 py-0.5 text-[10px] font-semibold text-[color:var(--text)]";
-  const requiresAdultGate = Boolean(activeItem?.isSensitive || activeItem?.creator?.isAdult);
   const showScrollHint = isDesktop && canScroll && !hasScrolled;
   const showVideoOverlay = isVideo && (isPaused || isEnded) && (!requiresAdultGate || adultOk);
 
@@ -482,6 +496,7 @@ export function PopClipViewer({
 
   if (!open || !activeItem) return null;
 
+  // CRITICAL: Video can only be shown when NOT gated OR adult is confirmed
   const canViewMedia = !requiresAdultGate || adultOk;
   const canShowVideo = isVideo && videoSrc && canViewMedia;
   const showSensitiveOverlay = requiresAdultGate && !adultOk;
@@ -504,15 +519,21 @@ export function PopClipViewer({
 
   const handleProfileClick = () => {
     if (!profileHref) return;
+    
     const go = () => {
+      // Build return URL with current viewer context
+      const returnPath = getViewerReturnPath() || (typeof window !== 'undefined' ? window.location.pathname + window.location.search : '');
+      const profileWithReturn = buildReturnUrl(profileHref, returnPath);
+      
       if (typeof window === "undefined") {
-        void router.push(profileHref);
+        void router.push(profileWithReturn);
         return;
       }
       window.requestAnimationFrame(() => {
-        void router.push(profileHref);
+        void router.push(profileWithReturn);
       });
     };
+    
     if (requiresAdultGate) {
       requireAdultGate(go);
       return;
@@ -521,14 +542,31 @@ export function PopClipViewer({
   };
 
   const handleChatClick = () => {
-    if (!chatHref) return;
+    // CRITICAL: Always build correct /c/{handle} href, never use /fan/ or /go/
+    const correctChatHref = buildCreatorChatHref(
+      activeItem.creator.handle,
+      getViewerReturnPath() || (typeof window !== 'undefined' ? window.location.pathname : '/explore')
+    );
+    
+    // Debug log (dev only)
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[PopClipViewer] Abrir chat', {
+        handle: activeItem.creator.handle,
+        href: correctChatHref,
+        propChatHref: chatHref
+      });
+    }
+    
     if (requiresAdultGate) {
       requireAdultGate(() => {
-        navigateFromViewer(chatHref);
+        // Don't call handleClose - let route change unmount viewer
+        void router.push(correctChatHref);
       });
       return;
     }
-    navigateFromViewer(chatHref);
+    
+    // Navigate directly - let route change unmount viewer
+    void router.push(correctChatHref);
   };
 
   return (
@@ -561,7 +599,7 @@ export function PopClipViewer({
                       playsInline
                       loop
                       autoPlay
-                      preload="metadata"
+                      preload="none"
                       controls={false}
                       onClick={handleVideoToggle}
                       onPlay={() => {

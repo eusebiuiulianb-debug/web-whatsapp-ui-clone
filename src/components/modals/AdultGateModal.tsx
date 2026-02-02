@@ -1,5 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
+import { confirmAdult } from "../../store/useAdultGate";
 
 export type AdultGateModalProps = {
   open: boolean;
@@ -8,6 +9,18 @@ export type AdultGateModalProps = {
 };
 
 export function AdultGateModal({ open, onConfirm, onCancel }: AdultGateModalProps) {
+  const handleConfirm = async () => {
+    // Persist to localStorage with TTL
+    confirmAdult();
+    // Also confirm via API for cookie-based persistence
+    try {
+      await fetch("/api/auth/adult-confirm", { method: "POST", credentials: "include" });
+    } catch (_err) {
+      // Ignore API errors - localStorage is primary
+    }
+    onConfirm();
+  };
+
   return (
     <Dialog.Root
       open={open}
@@ -37,7 +50,7 @@ export function AdultGateModal({ open, onConfirm, onCancel }: AdultGateModalProp
             <div className="flex flex-col gap-2">
               <button
                 type="button"
-                onClick={onConfirm}
+                onClick={handleConfirm}
                 className="inline-flex h-10 w-full items-center justify-center rounded-full bg-[color:var(--brand-strong)] text-sm font-semibold text-[color:var(--surface-0)] shadow-lg transition hover:bg-[color:var(--brand)]"
               >
                 Tengo 18+ / Continuar

@@ -4,6 +4,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { memo, useEffect, useRef, useState, type MouseEvent } from "react";
 import { useRouter } from "next/router";
+import { getAdultGateState } from "../../store/useAdultGate";
+import { useAdultGate } from "../../hooks/useAdultGate";
+import { buildCreatorChatHref } from "../../lib/chatHref";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { Skeleton } from "../ui/Skeleton";
 import { IconGlyph } from "../ui/IconGlyph";
@@ -111,9 +114,29 @@ export const PopClipTile = memo(function PopClipTile({
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [isCaptionOpen, setIsCaptionOpen] = useState(false);
   const [servicesOpen, setServicesOpen] = useState(false);
+  const [chatGateOpen, setChatGateOpen] = useState(false);
   const mediaContainerRef = useRef<HTMLDivElement | null>(null);
   const captionPanelRef = useRef<HTMLDivElement | null>(null);
   const captionTriggerRef = useRef<HTMLButtonElement | null>(null);
+  
+  // Adult gate for chat navigation
+  const storeState = getAdultGateState();
+  const { adultOk: hookAdultOk, modal: chatGateModal } = useAdultGate({
+    onConfirm: () => {
+      setChatGateOpen(false);
+      // CRITICAL: Build correct chat href on confirmation
+      const correctChatHref = buildCreatorChatHref(
+        item.creator.handle,
+        typeof window !== 'undefined' ? window.location.pathname : '/explore'
+      );
+      // Navigate to chat after confirmation
+      void router.push(correctChatHref);
+    },
+    onCancel: () => {
+      setChatGateOpen(false);
+    },
+  });
+  const adultOk = storeState.adultOk || hookAdultOk;
   const title = item.title?.trim() || "PopClip";
   const caption = (item.caption ?? "").trim();
   const previewSrc = item.thumbnailUrl || item.posterUrl || item.previewImageUrl || "";
@@ -560,27 +583,54 @@ export const PopClipTile = memo(function PopClipTile({
           )}
         >
           <div className="flex">
-            <Link href={chatHref} legacyBehavior passHref>
-              <a
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={(event) => event.stopPropagation()}
-                onKeyDown={(event) => event.stopPropagation()}
-                aria-label="Abrir chat"
-                title="Abrir chat"
-                className="flex w-full"
-              >
-                <span className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] px-4 text-[12px] font-semibold text-white shadow-sm transition hover:bg-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40">
-                  <MessageCircle className="h-4 w-4" aria-hidden="true" />
-                  Abrir chat
-                </span>
-              </a>
-            </Link>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                // CRITICAL: Always use /c/{handle} for chat, never /fan/ or /go/
+                const correctChatHref = buildCreatorChatHref(
+                  item.creator.handle,
+                  typeof window !== 'undefined' ? window.location.pathname : '/explore'
+                );
+                
+                // Debug log (dev only)
+                if (process.env.NODE_ENV === 'development') {
+                  console.log('[PopClipTile] Abrir chat', {
+                    handle: item.creator.handle,
+                    href: correctChatHref,
+                    propChatHref: chatHref
+                  });
+                }
+                
+                // Check if adult gating is required for this creator
+                const requiresGating = Boolean(item.creator.isAdult);
+                
+                if (requiresGating && !adultOk) {
+                  // Show adult gate modal - after confirmation will navigate
+                  setChatGateOpen(true);
+                } else {
+                  // Navigate directly to chat
+                  void router.push(correctChatHref);
+                }
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
+              aria-label="Abrir chat"
+              title="Abrir chat"
+              className="relative z-20 inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-[color:var(--brand-strong)] bg-[color:var(--brand-strong)] px-4 text-[12px] font-semibold text-white shadow-sm transition hover:bg-[color:var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-black/40"
+            >
+              <MessageCircle className="h-4 w-4" aria-hidden="true" />
+              Abrir chat
+            </button>
           </div>
         </div>
       ) : null}
       {showServiceRow ? (
         <ServicesSheet open={servicesOpen} onOpenChange={setServicesOpen} tags={serviceTags} />
       ) : null}
+      {chatGateOpen && chatGateModal}
     </div>
   );
 });
